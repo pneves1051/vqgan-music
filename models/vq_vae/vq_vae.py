@@ -1,10 +1,7 @@
 import torch
-import torchaudio
-torchaudio.set_audio_backend("sox_io")
 import torch.nn as nn
-import torch.nn.functional as F
-from torch.cuda.amp import GradScaler
-from torch.utils.tensorboard import SummaryWriter
+from modules import VQVAEEncoder, VQVAEDecoder, VectorQuantizer
+
 
 class VQVAE(nn.Module):
   def __init__(self, embedding_dim, num_embeddings, input_channels, output_channels, num_filters, depth):
