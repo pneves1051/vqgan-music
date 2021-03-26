@@ -12,9 +12,8 @@ class VQVAE(nn.Module):
     self.input_channels = input_channels
     self.output_channels=output_channels
   
-    # o encoder bottom quantiza até um certo nível, e depois o encoder top termina a quantização
     self.encoder = VQVAEEncoder(input_channels, num_filters[-1], num_filters, depth)
-    # esta convolução passará o número de filtros para a dimensão do vector quant.
+    # conv that changes filter number to vq dimension
     self.conv = nn.Conv1d(bottom_num_filters[-1], embedding_dim, 3, padding=1)
 
     self.vector_quantizer = VectorQuantizer(embedding_dim, num_embeddings)
@@ -24,7 +23,7 @@ class VQVAE(nn.Module):
     self.tanh = nn.Tanh()
     self.sigmoid= nn.Sigmoid()
 
-  # retorna os vetores zq, ze e os índices a partor de inputs
+  # returns os the vectors zq, ze and the indices
   def encode(self, inputs):
     #inputs_one_hot = F.one_hot(inputs, self.input_channels).permute(0, 2, 1).float()
 
@@ -42,12 +41,12 @@ class VQVAE(nn.Module):
 
     return reconstructed
 
-  #maneira de conseguirmos facilmente os codebooks utilizados
+  # a way to get the codebook
   def get_vq_vae_codebooks(self):
     codebook = self.vector_quantizer.quantize(np.arange(self.num_embeddings))
     codebook = codebook.reshape(self.num_embedings, self.embedding_dim)
 
-    return top_codebook, bottom_codebook
+    return codebook
 
   def forward(self, inputs):
     encoding, quant, codes, indices = self.encode(inputs)
