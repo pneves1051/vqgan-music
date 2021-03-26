@@ -1,6 +1,75 @@
 import torch
 import torch.nn as nn
 
+
+class VectorQuantizer(nn.Module):
+  def __init__(self, embedding_dim, num_embeddings):
+    """
+    Args:
+      embedding_dim: dimensionality of the tensors in the quantized space.
+        Inputs to the modules must be in this format as well.
+      num_embeddings: number of vectors in the quantized space.
+    """
+    super(VectorQuantizer, self).__init__()
+    # k: size of the discrete latent space
+    self.embedding_dim = embedding_dim
+    self.num_embeddings = num_embeddings
+    # d: dimensionalidof each embedding latent vector
+    # (k embedding vectors)
+    # codebook: contains the k d-dimensional vectors from the quantized latent space
+    emb = torch.empty(embedding_dim, num_embeddings)
+    emb.data.uniform_(-1/num_embeddings, 1/num_embeddings)
+    #torch.nn.init.xavier_uniform_(emb)
+    self.embedding= nn.Parameter(emb)
+    self.register_parameter('embeddings', self.embedding)  
+
+    #embeddings = nn.Embedding(num_embeddings, embedding_dim)
+  
+  def forward(self, inputs):
+    """Connects the module to some inputs.
+    Args:
+      inputs: Tensor, second dimension must be equal to embedding_dim. All other
+        leading dimensions will be flattened and treated as a large batch.
+      is_training: boolean, whether this connection is to training data.
+   
+   Returns:
+        quantize: Tensor containing the quantized version of the input.
+        encodings: Tensor containing the discrete encodings, ie which element
+        of the quantized space each input element was mapped to.
+        encoding_indices: Tensor containing the discrete encoding indices, ie
+        which element of the quantized space each input element was mapped to.
+    """
+    # input (batch, len, dim) -> (batch*len, dim)    
+    flat_inputs = inputs.reshape(-1, self.embedding_dim)
+    # distance between the input and the embedding elements
+    distances = (
+        torch.sum(flat_inputs**2, 1, keepdim=True)
+        - 2*torch.matmul(flat_inputs, self.embeddings)
+         + torch.sum(self.embeddings**2, 0, keepdim=True)
+    )
+    
+    # index with smaller distance beetween the input and the embedding elements
+    encoding_indices = torch.argmax(-distances, dim=1)
+    # transform the index in one_hot to multiply by the embedding
+    encodings = nn.functional.one_hot(encoding_indices, self.num_embeddings).type_as(distances)
+    # multiply the index to find the quantization
+    encoding_indices = encoding_indices.view(*inputs.shape[:-1])
+    #print(set(encoding_indices.flatten().tolist()))
+    quantized = self.quantize(encoding_indices)
+    
+    # before the detach
+    codes = torch.cat([inputs, quantized], axis=-1)
+
+    # straight through estimator
+    quantized = inputs + (quantized - inputs).detach()
+    avg_probs = torch.mean(encodings, 0)
+    
+    return quantized, codes, encoding_indices
+  
+  def quantize(self, encoding_indices):
+    """Retorna vetor de embedding para um batch de índices"""
+    return nn.functional.embedding(encoding_indices, self.embeddings.transpose(1,0))
+
 class ResLayer(nn.Module):
   def __init__(self, filters, dilation, leaky=False):
     super(ResLayer, self).__init__()
@@ -51,7 +120,7 @@ class ResBlock(nn.Module):
                       ])
     self.res_layers =  nn.Sequential(*res_list)
 
-    # camadas de pós processamento
+    # post processing layers
     self.post = nn.Sequential(nn.Conv1d(num_filters[-1], num_filters[-1], 3, padding=1),
                               nn.BatchNorm1d(num_filters[-1]),
                               nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
@@ -83,7 +152,7 @@ class VQVAEDecoder(nn.Module):
                       nn.LeakyReLU(0.2) if leaky else nn.ReLU()])
     self.res_layers =  nn.Sequential(*res_list)
 
-    # camadas de pós processamento
+    # post processing layers
     self.post = nn.Sequential(
                           nn.Conv1d(num_filters[-1], num_filters[-1], 3, padding=1),
                           nn.BatchNorm1d(num_filters[-1]),
