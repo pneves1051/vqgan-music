@@ -10,7 +10,11 @@ class MusicDataset(torch.utils.data.IterableDataset):
   def __init__(self, dataset_dir, annotations_path, sr, window_size, hop_length, batch_size):
     """
     Args:
-      song_folder (string): Caminho para a pasta com os arquivos.
+      dataset_dir (string): dataset directory
+      sr: sample rate of the audio
+      window_size: number of samples of each item
+      hop_length: step size
+      batch_size: batch_size
     """
     self.dataset_dir = dataset_dir
     self.file_list = glob.glob(dataset_dir)
