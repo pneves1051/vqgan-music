@@ -1,7 +1,7 @@
 import torch
 
 class VQ_VAETrainer():
-  def __init__(self, vq_vae, discriminator, transformer, dataloader, vae_loss, gan_loss, device, v_lr, d_lr, b_size, noise_dims):
+  def __init__(self, vq_vae, discriminator, transformer, dataloader, vae_loss, gan_loss, device, v_lr, d_lr, b_size, noise_dims, disc_steps=1):
     self.vq_vae = vq_vae
     self.discriminator = discriminator    
     self.dataloader = dataloader
@@ -10,6 +10,8 @@ class VQ_VAETrainer():
     self.device=device
     self.b_size = b_size
     self.noise_dims = noise_dims
+    self.disc_steps = disc_steps
+    
     # betas=(0.5, 0.999)
     self.v_optimizer = torch.optim.Adam(self.vq_vae.parameters(), lr = v_lr)
     self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr = d_lr)
@@ -81,35 +83,46 @@ class VQ_VAETrainer():
       #Treino com batch real
       real = data['inputs'].to(self.device)
     
+      # Allow D to be updated
+      
       ##########      
       # D update
-      ##########
-      self.discriminator.zero_grad()
-      #Forward of the real batch through D
-      d_real = self.discriminator(real)
-      #torch.nn.utils.clip_grad_norm_(self.dis.parameters(), 0.5)
-      D_x = real_prob.mean().item()
-
-      # VQ_VAE reconstructions
-      reconstructed, codes = self.generator(real)
-      #reconstructed_gan, _, _ = self.generator(top_encoding.detach(), bottom_encoding.detach())
-  
-      # Fake batch goes through d
-      d_fake = self.discriminator(reconstructed.detach())
-      D_G_z1 = fake_prob.mean().item()
-            
-      #Cálculo do erro no batch de amostras reais
-      d_loss = self.gan_loss(d_real, d_fake, mode='d')
+      ##########      
+      for p in self.discriminator.parameters():
+        p.requires_grad = True
       
-      #Calcula os gradientes para o batch
-      d_loss.backward()
-      #Atualza D
-      self.d_optimizer.step()
+      for _ in range(self.disc_steps):
+
+        self.discriminator.zero_grad()
+        #Forward of the real batch through D
+        d_real = self.discriminator(real)
+        #torch.nn.utils.clip_grad_norm_(self.dis.parameters(), 0.5)
+        D_x = real_prob.mean().item()
+
+        # VQ_VAE reconstructions
+        reconstructed, codes = self.generator(real)
+        #reconstructed_gan, _, _ = self.generator(top_encoding.detach(), bottom_encoding.detach())
+
+        # Fake batch goes through d
+        d_fake = self.discriminator(reconstructed.detach())
+        D_G_z1 = fake_prob.mean().item()
+
+        #Cálculo do erro no batch de amostras reais
+        d_loss = self.gan_loss(d_real, d_fake, mode='d')
+
+        #Calcula os gradientes para o batch
+        d_loss.backward()
+        #Atualza D
+        self.d_optimizer.step()
      
       #########
       # G update
       #########
-      self.vq_vae.zero_grad(
+      # Stops D from being updated
+      for p in self.discriminator.parameters():
+        p.requires_grad = False      
+      
+      self.vq_vae.zero_grad()
       #self.discriminator.zero_grad()
      
       d_fake = self.discriminator(reconstructed)
