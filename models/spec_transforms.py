@@ -1,6 +1,9 @@
 import torch
+import torch.nn.functional as F
 import np
 import torchaudio
+torchaudio.set_audio_backend("sox_io")
+
 
 def inst_freq_np(phase):
   un_phase = np.unwrap(phase, axis=1)
@@ -171,12 +174,12 @@ def unwrap(inputs, dim=-1):
 def inst_freq(phase):
   un_phase = unwrap(phase, axis=1)
   un_phase_diff = diff(un_phase, axis=1)
-  i_freq = torch.cat([phase[:, :1], un_phase_diff], axis=1)
+  i_freq = torch.cat([phase[:, :1], un_phase_diff], dim=1)
 
   return i_freq/np.pi
 
 def inv_inst_freq(i_freq):
-  i_freq_inv = torch.cumsum(i_freq * np.pi, axis=1)
+  i_freq_inv = torch.cumsum(i_freq * np.pi, dim=1)
   return i_freq_inv
 
 def exp_s(x):
@@ -189,7 +192,7 @@ def stft_log(x):
   mag = x[0]
   phase = x[1]
   mlog = log_s(mag)
-  return torch.stack([mlog, phase])
+  return torch.stack([mlog, phase], dim=1)
 
 def stft_exp(x):
   mag = x[0]
@@ -209,11 +212,11 @@ def denormalize(x, min, max):
   return norm_x
 
 def create_stft(signal, n_fft, hop_length):
-  stft = librosa.stft(signal, n_fft=n_fft, hop_length=hop_length, center=True)
-  #stft= np.pad(stft, [[0, 0], [1, 1 2]], mode = reflect)
-  mag, phase = stft.view_as_real().T
-  phase = np.angle(phase)
+  stft = torch.stft(signal, n_fft=n_fft, hop_length=hop_length, center=True, return_comples=True)
+ 
+  mag, phase = torchaudio.functional.magphase(stft)
   
+  phase = np.angle(phase)
   mag = torch.abs(mag)
   #mag = mag - mag.mean()
   #mag = mag/np.max(np.abs(mag))
@@ -229,14 +232,14 @@ def create_stft(signal, n_fft, hop_length):
   inst_f = normalize(inst_f, -1, 1, clip=True)
   #print(log_mag.shape)
 
-  spec = torch.stack([log_mag, inst_f])
+  spec = torch.stack([log_mag, inst_f], dim=1)
 
-  spec = spec[:, :-1, :-1]
+  spec = spec[:, :, :-1, :-1]
   return spec
 
 def invert_stft(spec, hop_length):
-  spec = np.pad(spec, ((0, 0), (0, 1) , (0, 1)), mode='mean')
-  log_mag, inst_f = spec[0], spec[1]
+  spec = F.pad(spec, (0, 1, 0, 1), mode='mean')
+  log_mag, inst_f = spec[:, 0], spec[:, 1]
   #print(log_mag.shape)
   
   log_mag = denormalize(log_mag, -12, 6)
@@ -262,12 +265,12 @@ def create_mel(signal, n_fft, hop_length):
   #mag = mag/np.max(np.abs(mag))
   #mag = (mag - np.min(mag))/(np.max(mag)-np.min(mag))
   
-  mel = librosa.filters.mel(sr=SAMPLE_RATE, n_fft=n_fft, n_mels=256, norm=1)
-  # mel = librosa.filters.mel(sr=SAMPLE_RATE, n_fft = n_fft, n_mels=n_fft//2+1, norm=1)
+  mel = torchaudio.functional.create_fb_matrix(n_freqs=n_fft//2+1, n_mels=256, sample_rate=SAMPLE_RATE, norm=1)
+  mel = mel.unsqueeze(0)
   #print(mel.shape, stft.shape)
 
-  mel_mag = mel@mag
-  mel_phase = mel@phase
+  mel_mag = torch.matmul(mel, mag)
+  mel_phase = torch.matmul(mel, phase)
 
   log_mel_mag = log_s(mel_mag)
   mel_if = inst_freq(mel_phase)
@@ -279,31 +282,30 @@ def create_mel(signal, n_fft, hop_length):
   mel_if = normalize(mel_if, -1, 1, clip=True)
   #print(log_mel_mag.shape)
 
-  mel_spec = torch.stack([log_mel_mag, mel_if])
+  mel_spec = torch.stack([log_mel_mag, mel_if], dim=1)
 
-  mel_spec = mel_spec[:, :, :-1]
+  mel_spec = mel_spec[:, :, :, :-1]
   #print(mel_spec.shape)
   return mel_spec
 
 def invert_mel(mel_spec, n_fft, hop_length):
-  mel_spec = torch.pad(mel_spec, ((0, 0), (0, 0) , (0, 1)), mode='reflect')
+  mel_spec = torch.pad(mel_spec, (0, 1), mode='reflect')
   
-  log_mel_mag, mel_if = mel_spec[0], mel_spec[1]
+  log_mel_mag, mel_if = mel_spec[:, 0], mel_spec[:, 1]
   
   log_mel_mag = denormalize(log_mel_mag, -10, 6)
   mel_if = denormalize(mel_if, -1, 1)
-  
   
   mel_mag = exp_s(log_mel_mag)
   mel_phase = inv_inst_freq(mel_if)
   
   # mel = librosa.filters.mel(sr=SAMPLE_RATE, n_fft=n_fft, n_mels=n_fft//2+1)
-  mel = librosa.filters.mel(sr=SAMPLE_RATE, n_fft=n_fft, n_mels=256, norm=1)
+  mel = torchaudio.functional.create_fb_matrix(n_freqs=n_fft//2+1, n_mels=256, sample_rate=SAMPLE_RATE, norm=1)
 
-  inv_mel = torch.linalg.pinv(mel)
+  inv_mel = torch.linalg.pinv(mel).unsqueeze(0)
 
-  mag = inv_mel@mel_mag
-  phase = inv_mel@mel_phase
+  mag = torch.matmul(inv_mel, mel_mag)
+  phase = torch.matmul(inv_mel, mel_phase)
 
   stft = mag*torch.exp(1j * phase)
  
