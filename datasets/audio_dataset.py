@@ -6,7 +6,7 @@ import torch
 import glob
 import math
 
-class MusicDataset(torch.utils.data.IterableDataset):
+class AudioDataset(torch.utils.data.IterableDataset):
   def __init__(self, dataset_dir, annotations_path, sr, window_size, hop_length, batch_size):
     """
     Args:
