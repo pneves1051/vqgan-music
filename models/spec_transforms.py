@@ -253,7 +253,7 @@ def invert_stft(spec, hop_length):
   inv_stft = torch.istft(stft, hop_length=hop_length)
   return inv_stft, stft
 
-def create_mel(signal, n_fft, hop_length):
+def create_mel(signal, n_fft, hop_length, sample_rate=44100):
   stft = torch.stft(signal, n_fft=n_fft, hop_length=hop_length, center=True)
   #stft= np.pad(stft, [[0, 0], [1, 1 2]], mode = reflect)
   #mag, phase = librosa.magphase(stft)
@@ -265,7 +265,7 @@ def create_mel(signal, n_fft, hop_length):
   #mag = mag/np.max(np.abs(mag))
   #mag = (mag - np.min(mag))/(np.max(mag)-np.min(mag))
   
-  mel = torchaudio.functional.create_fb_matrix(n_freqs=n_fft//2+1, n_mels=256, sample_rate=SAMPLE_RATE, norm=1)
+  mel = torchaudio.functional.create_fb_matrix(n_freqs=n_fft//2+1, n_mels=256, sample_rate=sample_rate, norm=1)
   mel = mel.unsqueeze(0)
   #print(mel.shape, stft.shape)
 
@@ -288,7 +288,7 @@ def create_mel(signal, n_fft, hop_length):
   #print(mel_spec.shape)
   return mel_spec
 
-def invert_mel(mel_spec, n_fft, hop_length):
+def invert_mel(mel_spec, n_fft, hop_length, sample_rate=44100):
   mel_spec = torch.pad(mel_spec, (0, 1), mode='reflect')
   
   log_mel_mag, mel_if = mel_spec[:, 0], mel_spec[:, 1]
@@ -300,7 +300,7 @@ def invert_mel(mel_spec, n_fft, hop_length):
   mel_phase = inv_inst_freq(mel_if)
   
   # mel = librosa.filters.mel(sr=SAMPLE_RATE, n_fft=n_fft, n_mels=n_fft//2+1)
-  mel = torchaudio.functional.create_fb_matrix(n_freqs=n_fft//2+1, n_mels=256, sample_rate=SAMPLE_RATE, norm=1)
+  mel = torchaudio.functional.create_fb_matrix(n_freqs=n_fft//2+1, n_mels=256, sample_rate=sample_rate, norm=1)
 
   inv_mel = torch.linalg.pinv(mel).unsqueeze(0)
 
