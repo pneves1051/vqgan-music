@@ -14,25 +14,26 @@ def latent_loss(codes, beta=0.25):
   latent_loss = vq_loss+beta*commit_loss
   return latent_loss
 
-def spectral_loss(output, real, n_fft=1024, hop_length=256):
-  output_spec = spec(stft(output, n_fft = 1024, hop_length=256))
+def spectral_loss(real, fake, n_fft=1024, hop_length=256):
   real_spec = spec(stft(real, n_fft = 1024, hop_length=256))
-  spectral_loss = torch.linalg.norm(output_spec.view(output_spec.shape[0], -1) 
-                                    - real_spec.view(real_spec.shape[0], -1), ord='fro')
+  fake_spec = spec(stft(fake, n_fft = 1024, hop_length=256))
+  spectral_loss = torch.linalg.norm(real_spec.view(real_spec.shape[0], -1) 
+                                    - fake_spec.view(fake_spec.shape[0], -1), ord='fro')
   return spectral_loss
 
-def mel_loss(output, real, n_fft=1024, hop_length=256, sample_rate=44100):
-  output_mel,_ = create_mel(output, n_fft, hop_length, sample_rate=sample_rate)
+def mel_loss(real, fake, n_fft=1024, hop_length=256, sample_rate=44100):
   real_mel,_ = create_mel(real, n_fft, hop_length, sample_rate=sample_rate)
-  mel_loss = torch.abs(torch.abs(output_stft)-torch.abs(real_stft))
+  fake_mel,_ = create_mel(fake, n_fft, hop_length, sample_rate=sample_rate)
+  mel_loss = torch.linalg.norm(real_mel.view(real_spec.shape[0], -1) 
+                                    - fake_mel.view(fake_mel.shape[0], -1), ord='fro')
   return mel_loss
 
-def vq_vae_loss(output, real, codes, beta=0.25, spec=True):
-  l2_loss = F.mse_loss(output, real)
+def vq_vae_loss(real, fake, codes, beta=0.25, spec=True):
+  l2_loss = F.mse_loss(fake, real)
   lat_loss = latent_loss(codes, beta=beta)
   spec_loss = 0
   if spec:
-    spec_loss = spectral_loss(output, real)
+    spec_loss = spectral_loss(fake, real)
   vqvae_loss = l2_loss + lat_loss + spec_loss
   loss_list = [l2_loss.item(), lat_loss.item(), spec_loss.item()]
   return vqvae_loss, loss_list
