@@ -1,5 +1,6 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 from models.spec_transforms import stft, spec, create_mel
 
 # VQ_VAE losses
@@ -14,11 +15,10 @@ def latent_loss(codes, beta=0.25):
   return latent_loss
 
 def spectral_loss(output, real, n_fft=1024, hop_length=256):
-  output_stft = torch.stft(output, n_fft=n_fft, hop_length=hop_length, window=torch.hann_window(n_fft, device=output.device), return_complex=True)
-  real_stft = torch.stft(real, n_fft=n_fft, hop_length=hop_length, window=torch.hann_window(n_fft, device=real.device), return_comples = True)
-  output_spec = spec(output, n_fft = 1024, hop_length=256)
-  real_spec = spec(real, n_fft = 1024, hop_length=256)
-  spectral_loss = torch.linalg.norm(output_stft - real_stft, ord=2)
+  output_spec = spec(stft(output, n_fft = 1024, hop_length=256))
+  real_spec = spec(stft(real, n_fft = 1024, hop_length=256))
+  spectral_loss = torch.linalg.norm(output_spec.view(output_spec.shape[0], -1) 
+                                    - real_spec.view(real_spec.shape[0], -1), ord='fro')
   return spectral_loss
 
 def mel_loss(output, real, n_fft=1024, hop_length=256, sample_rate=44100):
@@ -27,8 +27,15 @@ def mel_loss(output, real, n_fft=1024, hop_length=256, sample_rate=44100):
   mel_loss = torch.abs(torch.abs(output_stft)-torch.abs(real_stft))
   return mel_loss
 
-def vq_vae_loss(outputs, targets, codes, beta=0.25):
-  return torch.Tensor([mse_loss(outputs, targets), latent_loss(top_codes, beta), latent_loss(bottom_codes, beta)])
+def vq_vae_loss(output, real, codes, beta=0.25, spec=True):
+  l2_loss = F.mse_loss(output, real)
+  lat_loss = latent_loss(codes, beta=beta)
+  spec_loss = 0
+  if spec:
+    spec_loss = spectral_loss(output, real)
+  vqvae_loss = l2_loss + lat_loss + spec_loss
+  loss_list = [l2_loss.item(), lat_loss.item(), spec_loss.item()]
+  return vqvae_loss, loss_list
 
 # GAN losses
 
