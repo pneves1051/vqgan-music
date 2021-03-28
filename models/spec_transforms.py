@@ -151,6 +151,12 @@ def invert_mel_np(mel_spec, n_fft, hop_length):
 
 pi = torch.acos(torch.zeros(1)).item()
 
+def stft(input, n_fft=1024, hop_length=256):
+  return torch.stft(output, n_fft=n_fft, hop_length=hop_length, window=torch.hann_window(n_fft, device=output.device), return_complex=True)
+  
+def spec(stft):
+  return torch.linalg.norm(stft, ord='fro', dim=-1)
+
 def diff(inputs, dim=-1):
   size = inputs.shape
   slice_back = torch.narrow(inputs, dim, 0, size[dim]-1)
