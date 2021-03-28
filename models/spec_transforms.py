@@ -1,6 +1,6 @@
 import torch
 import torch.nn.functional as F
-import np
+import numpy as np
 import torchaudio
 torchaudio.set_audio_backend("sox_io")
 
