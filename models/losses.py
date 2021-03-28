@@ -27,13 +27,13 @@ def loss_fn(outputs, targets, top_codes, bottom_codes, beta=0.25):
   return torch.Tensor([mse_loss(outputs, targets), latent_loss(top_codes, beta), latent_loss(bottom_codes, beta)])
 
 # INCLUDE D OR G TO CALCULATE PREDS AND INTERPOLATION
-def WGAN_loss(d_real, d_fake, mode):
-  if mode = 'd':
+def wgan_loss(discriminator, d_real, d_fake, mode):
+  if mode == 'd':
     d_loss = -(d_real.mean() - d_fake.mean())
     # Gradient penalty
     eps = torch.rand((self.b_size, 1, 1, 1)).repeat(1, *real.shape[1:]).to(self.device)
     interp = (eps*real+ (1-eps)*fake).to(self.device)
-    d_interp = self.discriminator(interp, conditions)
+    d_interp = discriminator(interp, conditions)
     gp = torch.autograd.grad(outputs=d_interp, inputs=interp,
                               grad_outputs=torch.ones_like(d_interp),
                               create_graph=True, retain_graph=True)[0]          
@@ -46,3 +46,14 @@ def WGAN_loss(d_real, d_fake, mode):
   elif mode == 'g':
     g_loss = -d_fake.mean()   
     return g_loss
+
+def hinge_loss(d_real, d_fake, mode):
+  if mode == 'd':
+    real_loss = torch.mean(F.relu(1. - d_real))
+    fake_loss = torch.mean(F.relu(1. + d_fake))
+    d_loss = 0.5*(real_loss + fake_loss)
+    return d_loss
+  elif mode == 'g':
+    g_loss = -d_fake.mean()
+    return g_loss
+
