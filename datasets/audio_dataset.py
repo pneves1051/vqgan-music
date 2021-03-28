@@ -5,6 +5,7 @@ import torchaudio
 import torch
 import glob
 import math
+import numpy as np
 
 class AudioDataset(torch.utils.data.IterableDataset):
   def __init__(self, dataset_dir, annotations_path, sr, window_size, hop_length, batch_size):
