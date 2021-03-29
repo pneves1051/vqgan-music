@@ -24,7 +24,7 @@ def spectral_loss(real, fake, n_fft=1024, hop_length=256):
 def mel_loss(real, fake, n_fft=1024, hop_length=256, sample_rate=44100):
   real_mel,_ = create_mel(real, n_fft, hop_length, sample_rate=sample_rate)
   fake_mel,_ = create_mel(fake, n_fft, hop_length, sample_rate=sample_rate)
-  mel_loss = torch.linalg.norm(real_mel.view(real_spec.shape[0], -1) 
+  mel_loss = torch.linalg.norm(real_mel.view(real_mel.shape[0], -1) 
                                     - fake_mel.view(fake_mel.shape[0], -1), ord='fro')
   return mel_loss
 
@@ -41,13 +41,13 @@ def vq_vae_loss(real, fake, codes, beta=0.25, spec=True):
 # GAN losses
 
 # INCLUDE D OR G TO CALCULATE PREDS AND INTERPOLATION
-def wgan_loss(discriminator, d_real, d_fake, mode):
+def wgan_loss(discriminator, real, fake, d_real, d_fake, mode):
   if mode == 'd':
     d_loss = -(d_real.mean() - d_fake.mean())
     # Gradient penalty
-    eps = torch.rand((self.b_size, 1, 1, 1)).repeat(1, *real.shape[1:]).to(self.device)
-    interp = (eps*real+ (1-eps)*fake).to(self.device)
-    d_interp = discriminator(interp, conditions)
+    eps = torch.rand((d_real.shape[0], 1, 1, 1)).repeat(1, *real.shape[1:]).to(real.device)
+    interp = (eps*real+ (1-eps)*fake).to(real.device)
+    d_interp = discriminator(interp, None)
     gp = torch.autograd.grad(outputs=d_interp, inputs=interp,
                               grad_outputs=torch.ones_like(d_interp),
                               create_graph=True, retain_graph=True)[0]          
