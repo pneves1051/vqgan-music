@@ -164,5 +164,37 @@ class VQVAEDecoder(nn.Module):
     x = self.res_layers(x)
     output = self.post(x)
     return output
+
+class SelfAttn(nn.Module):
+  def __init__(self, ch, activation):
+    super(SelfAttn, self).__init__()
+    self.ch = ch
+    self.activation = activation
+
+    # Key
+    self.theta = nn.Conv1d(self.ch, self.ch//8, 1, bias = False)
+    self.phi = nn.Conv1d(self.ch, self.ch//8, 1, bias = False)
+    self.g = nn.Conv1d(self.ch, self.ch//2, 1, bias=False)
+    self.o = nn.Conv1d(self.ch//2, self.ch, 1, bias=False)
+    
+    # Gain parameter
+    self.gamma = nn.Parameter(torch.tensor(0.), requires_grad=True)
+
+  def forward(self, x):
+
+    # query
+    theta = self.theta(x)
+    # key
+    phi = F.max_pool1d(self.phi(x), [2])
+    # value
+    g = F.max_pool1d(self.g(x), [2])
+
+    # Matmul and softmax to get attention maps
+    beta = F.softmax(torch.bmm(theta.transpose(1,2), phi), -1)
+    # Attention map times g path
+    o = self.o(torch.bmm(g, beta.transpose(1,2)))
+
+    return self.gamma * o + x
+
   
   
