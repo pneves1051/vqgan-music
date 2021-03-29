@@ -71,34 +71,34 @@ class VectorQuantizer(nn.Module):
     return nn.functional.embedding(encoding_indices, self.embeddings.transpose(1,0))
 
 class ResLayer(nn.Module):
-  def __init__(self, filters, dilation, leaky=False):
+  def __init__(self, chs, dilation, leaky=False):
     super(ResLayer, self).__init__()
     padding = dilation
     self.conv = nn.Sequential(
-                  nn.Conv1d(filters, filters, 3, dilation=dilation, padding=padding),
-                  nn.BatchNorm1d(filters),
+                  nn.BatchNorm1d(chs),
                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                  nn.Conv1d(filters, filters, 3, padding=1),
-                  nn.BatchNorm1d(filters))
-    self.relu =  nn.LeakyReLU(0.2) if leaky else nn.ReLU()
-       
-  def forward(self, inputs):
-    res_x = self.conv(inputs)
-    res_x += inputs
-    res_x = self.relu(res_x)
-    return res_x
+                  nn.Conv1d(chs, chs, 3, dilation=dilation, padding=padding),
+                  nn.BatchNorm1d(chs),
+                  nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                  nn.Conv1d(chs, chs, 1, padding=0),
+                  )
+           
+  def forward(self, x):
+    res_x = self.conv(x)
+    out = x + res_x
+    return out
 
 class ResBlock(nn.Module):
-  def __init__(self, filters, dilations, depth, leaky=False):
+  def __init__(self, chs, dilations, depth, leaky=False):
     super(ResBlock, self).__init__()
-    self.res_block = nn.Sequential(*[ResLayer(filters, dilations[i], leaky) for i in range(depth)])
+    self.res_block = nn.Sequential(*[ResLayer(chs, dilations[i], leaky) for i in range(depth)])
 
-  def forward(self, inputs):
-    output = self.res_block(inputs)
+  def forward(self, x):
+    output = self.res_block(x)
     return output
   
-  class VQVAEEncoder(nn.Module):
-  def __init__(self, first_filter, last_filter, num_filters, depth, leaky=False):
+class VQVAEEncoder(nn.Module):
+  def __init__(self, first_ch, last_ch, num_chs, depth, attn_indices, leaky=False):
     super(VQVAEEncoder,self).__init__()
     dilations = [3**i for i in range(depth)]
 
@@ -109,61 +109,80 @@ class ResBlock(nn.Module):
     stride=4
     padding = (kernel_size-stride)//2
 
-    self.causal_conv = nn.Conv1d(first_filter, num_filters[0], 3, padding=1)
+    self.first_conv = nn.Conv1d(first_ch, num_chs[0], 3, padding=1)
 
     res_list = []
-    for i in range(len(num_filters)):
-      res_list.extend([ResBlock(num_filters[i], dilations, depth, leaky),
-                      nn.Conv1d(num_filters[i], num_filters[i], kernel_size, stride=stride, padding=padding),
-                      nn.BatchNorm1d(num_filters[i]),
-                      nn.LeakyReLU(0.2) if leaky else nn.ReLU()
+    for i in range(1, len(num_chs)):
+                       res_list.extend([nn.BatchNorm1d(num_chs[i-1]),
+                       nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                       nn.Conv1d(num_chs[i-1], num_chs[i], kernel_size, stride=stride, padding=padding),
+                       ResBlock(num_chs[i], dilations, depth, leaky)
                       ])
-    self.res_layers =  nn.Sequential(*res_list)
+    self.res_layers =  nn.ModuleList(res_list)
 
     # post processing layers
-    self.post = nn.Sequential(nn.Conv1d(num_filters[-1], num_filters[-1], 3, padding=1),
-                              nn.BatchNorm1d(num_filters[-1]),
+    self.last_conv = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
                               nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                              nn.Conv1d(num_filters[-1], last_filter, 3, padding=1))
+                              nn.Conv1d(num_chs[-1], last_ch, 3, padding=1))
     
-  def forward(self, inputs):
-    x = self.causal_conv(inputs)
-    x = self.res_layers(x)
-    output = self.post(x)
-    return output
+  # Attention blocks
+  self.attn_indices = attn_indices
+  self.attn_modules = nn.ModuleList([SNSelfAttn(num_chs[f], 'relu') for f in self.attn_indices])
+
+  
+  def forward(self, x):
+    x = self.first_conv(x)
+    j = 0
+    for i, module in enumerate(self.res_layers):
+      x = module(x)
+      if i in self.attn_indices:
+        x, _ = self.attn_modules[j](x)
+        j += 1
+       
+    out = self.last_conv(x)
+    return out
 
 class VQVAEDecoder(nn.Module):
-  def __init__(self, first_filter, last_filter, num_filters, depth, leaky=False):
+  def __init__(self, first_ch, last_ch, num_chs, depth, attn_indices, leaky=False):
     super(VQVAEDecoder,self).__init__()
     dilations = [3**i for i in range(depth)]
     dilations = dilations[::-1]
-    self.causal_conv = nn.Conv1d(first_filter, num_filters[0], 3, padding=1)
 
     kernel_size =3
     stride = 4
     output_padding = 0
     padding = (kernel_size + output_padding-stride)//2
 
+    self.first_conv = nn.Conv1d(first_ch, num_chs[0], 3, padding=1)
+
     res_list = []
-    for i in range(len(num_filters)):
-      res_list.extend([ResBlock(num_filters[i], dilations, depth, leaky),
-                      nn.ConvTranspose1d(num_filters[i], num_filters[i], kernel_size, stride=stride, padding=padding),
-                      nn.BatchNorm1d(num_filters[i]),
-                      nn.LeakyReLU(0.2) if leaky else nn.ReLU()])
+    for i in range(1, len(num_chs)):
+      res_list.extend([ResBlock(num_chs[i-1], dilations, depth, leaky),
+                      nn.BatchNorm1d(num_chs[i]),
+                      nn.LeakyReLU(0.2) if leaky else nn.ReLU()
+                      nn.ConvTranspose1d(num_chs[i-1], num_chs[i], kernel_size, stride=stride, padding=padding)])
     self.res_layers =  nn.Sequential(*res_list)
 
     # post processing layers
-    self.post = nn.Sequential(
-                          nn.Conv1d(num_filters[-1], num_filters[-1], 3, padding=1),
-                          nn.BatchNorm1d(num_filters[-1]),
-                          nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                          nn.Conv1d(num_filters[-1], last_filter, 3, padding=1))
-    
+    self.last_conv = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
+                                  nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                                  nn.Conv1d(num_chs[-1], last_filter, 3, padding=1))
+        
+    self.attn_indices = attn_indices
+    self.attn_modules = nn.ModuleList([SNSelfAttn(num_chs[f], 'relu') for f in self.attn_indices])  
+  
+  
   def forward(self, inputs):
-    x = self.causal_conv(inputs)
-    x = self.res_layers(x)
-    output = self.post(x)
-    return output
+    x = self.first_conv(x)
+    j = 0
+    for i, module in enumerate(self.res_layers):
+      x = module(x)
+      if i in self.attn_indices:
+        x, _ = self.attn_modules[j](x)
+        j += 1
+       
+    out = self.last_conv(x)
+    return out
 
 class SelfAttn(nn.Module):
   def __init__(self, ch, activation):
