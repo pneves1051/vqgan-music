@@ -28,6 +28,11 @@ class VQVAETrainer():
     # noise fixo para avaliação do modelo
     self.fixed_noise = torch.rand(1, self.noise_dims[0], self.noise_dims[1], device=device)
     
+  def get_loss_hp(self, vqvae_loss, gan_loss):
+    hp = 1
+    return vq_vae_loss + hp*gan_loss
+  
+  
   def train_epoch(self):
     self.vqvae.train()
     self.discriminator.train()
@@ -44,7 +49,8 @@ class VQVAETrainer():
       outputs, codes = self.vqvae(inputs, annotations)
       
       # loss, loss_list = self.loss_fn(outputs, targets, top_codes, bottom_codes)
-      loss,_ = self.vqvae_loss(outputs, targets, codes)
+      loss_l = self.vqvae_loss(outputs, targets, codes)
+      loss = sum(loss_l)
       self.v_optimizer.zero_grad()
       loss.backward()
       #torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)     
@@ -132,11 +138,13 @@ class VQVAETrainer():
       d_fake = self.discriminator(reconstructed)
       D_G_z2 = d_fake.mean().item()       
         
-      vae_loss, vqvae_loss_list = self.vqvae_loss(real, reconstructed, codes)
+      vqvae_loss_l= self.vqvae_loss(real, reconstructed, codes)
+      vqvae_loss = sum(vq_vae_loss_l)
       #Calculamos o erro de G com base nesse output
       g_loss = self.gan_loss(d_fake, mode='g')
+      loss_hp = self.get_loss_hp(vq_vae_loss, gan_loss)
       #AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA      
-      (vae_loss + g_loss).backward()
+      (vqvae_loss + loss_gp*g_loss).backward()
       # Atualizamos G e E
       self.v_optimizer.step()
            
@@ -147,13 +155,13 @@ class VQVAETrainer():
         print('{:3d} batches | time: {:5.2f}s | Loss_D: {:5.4f} | Loss_G: {} | VQ_VAE_loss: {} | '
               ' | D(x): {:5.4f} | D(G(z)): {:5.4f} / {:5.4f} ' 
               .format(index, elapsed, d_loss.item(), g_loss.item(),
-                      vqvae_loss_list, D_x, D_G_z1, D_G_z2))              
+                      [l.item() for l in vqvae_loss_l)], D_x, D_G_z1, D_G_z2))              
         start_time = time.time()
 
       # Salva Losses para plotar depois
       d_losses.append(d_loss.item())
       g_losses.append(g_loss.item())
-      vqvae_losses.append(vqvae_loss_list)
+      vqvae_losses.append([l.item() for l in vqvae_loss_l)])
       
     return np.mean(d_losses, 0), np.mean(g_losses, 0), np.mean(vqvae_losses, 0)
 
