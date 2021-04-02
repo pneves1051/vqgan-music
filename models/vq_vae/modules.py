@@ -1,34 +1,35 @@
 import torch
 import torch.nn as nn
+import torch.nn.functional as F
 
 
 class VectorQuantizer(nn.Module):
-  def __init__(self, embedding_dim, num_embeddings):
+  def __init__(self, embed_dim, n_embed):
     """
     Args:
-      embedding_dim: dimensionality of the tensors in the quantized space.
+      embed_dim: dimensionality of the tensors in the quantized space.
         Inputs to the modules must be in this format as well.
-      num_embeddings: number of vectors in the quantized space.
+      n_embed: number of vectors in the quantized space.
     """
     super(VectorQuantizer, self).__init__()
     # k: size of the discrete latent space
-    self.embedding_dim = embedding_dim
-    self.num_embeddings = num_embeddings
+    self.embed_dim = embed_dim
+    self.n_embed = n_embed
     # d: dimensionalidof each embedding latent vector
     # (k embedding vectors)
     # codebook: contains the k d-dimensional vectors from the quantized latent space
-    emb = torch.empty(embedding_dim, num_embeddings)
-    emb.data.uniform_(-1/num_embeddings, 1/num_embeddings)
+    emb = torch.empty(embed_dim, n_embed)
+    emb.data.uniform_(-1/n_embed, 1/n_embed)
     #torch.nn.init.xavier_uniform_(emb)
     self.embedding= nn.Parameter(emb)
     self.register_parameter('embeddings', self.embedding)  
 
-    #embeddings = nn.Embedding(num_embeddings, embedding_dim)
+    #embeddings = nn.Embedding(n_embed, embed_dim)
   
   def forward(self, inputs):
     """Connects the module to some inputs.
     Args:
-      inputs: Tensor, second dimension must be equal to embedding_dim. All other
+      inputs: Tensor, second dimension must be equal to embed_dim. All other
         leading dimensions will be flattened and treated as a large batch.
       is_training: boolean, whether this connection is to training data.
    
@@ -40,7 +41,7 @@ class VectorQuantizer(nn.Module):
         which element of the quantized space each input element was mapped to.
     """
     # input (batch, len, dim) -> (batch*len, dim)    
-    flat_inputs = inputs.reshape(-1, self.embedding_dim)
+    flat_inputs = inputs.reshape(-1, self.embed_dim)
     # distance between the input and the embedding elements
     distances = (
         torch.sum(flat_inputs**2, 1, keepdim=True)
@@ -51,7 +52,7 @@ class VectorQuantizer(nn.Module):
     # index with smaller distance beetween the input and the embedding elements
     encoding_indices = torch.argmax(-distances, dim=1)
     # transform the index in one_hot to multiply by the embedding
-    encodings = nn.functional.one_hot(encoding_indices, self.num_embeddings).type_as(distances)
+    encodings = nn.functional.one_hot(encoding_indices, self.n_embed).type_as(distances)
     # multiply the index to find the quantization
     encoding_indices = encoding_indices.view(*inputs.shape[:-1])
     #print(set(encoding_indices.flatten().tolist()))
@@ -67,7 +68,7 @@ class VectorQuantizer(nn.Module):
     return quantized, codes, encoding_indices
   
   def quantize(self, encoding_indices):
-    """Retorna vetor de embedding para um batch de índices"""
+    """Returns embedding vector for a batch of indices"""
     return nn.functional.embedding(encoding_indices, self.embeddings.transpose(1,0))
 
 class ResLayer(nn.Module):
@@ -94,8 +95,8 @@ class ResBlock(nn.Module):
     self.res_block = nn.Sequential(*[ResLayer(chs, dilations[i], leaky) for i in range(depth)])
 
   def forward(self, x):
-    output = self.res_block(x)
-    return output
+    out = self.res_block(x)
+    return out
 
 class SelfAttn(nn.Module):
   def __init__(self, ch, activation):
@@ -129,90 +130,98 @@ class SelfAttn(nn.Module):
     return self.gamma * o + x
   
 class VQVAEEncoder(nn.Module):
-  def __init__(self, first_ch, last_ch, num_chs, depth, attn_indices, leaky=False):
+  def __init__(self, in_ch, out_ch, num_chs, depth, attn_indices, leaky=False):
     super(VQVAEEncoder,self).__init__()
     dilations = [3**i for i in range(depth)]
 
     # possível camada para condicionamento
     # self.cond = nn.AdaptiveMaxpool()
 
-    kernel_size = 3
+    kernel_size = 8
     stride=4
     padding = (kernel_size-stride)//2
 
-    self.first_conv = nn.Conv1d(first_ch, num_chs[0], 3, padding=1)
+    self.first_conv = nn.Conv1d(in_ch, num_chs[0], 3, padding=1)
 
     res_list = []
     for i in range(1, len(num_chs)):
-                       res_list.extend([nn.BatchNorm1d(num_chs[i-1]),
-                       nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                       nn.Conv1d(num_chs[i-1], num_chs[i], kernel_size, stride=stride, padding=padding),
-                       ResBlock(num_chs[i], dilations, depth, leaky)
-                      ])
+      res_list.append(nn.ModuleList([nn.BatchNorm1d(num_chs[i-1]),
+                                    nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                                    nn.Conv1d(num_chs[i-1], num_chs[i], kernel_size, stride=stride, padding=padding),
+                                    ResBlock(num_chs[i], dilations, depth, leaky)]))
+
     self.res_layers =  nn.ModuleList(res_list)
 
     # post processing layers
     self.last_conv = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
                               nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                              nn.Conv1d(num_chs[-1], last_ch, 3, padding=1))
+                              nn.Conv1d(num_chs[-1], out_ch, 3, padding=1))
     
-  # Attention blocks
-  self.attn_indices = attn_indices
-  self.attn_modules = nn.ModuleList([SNSelfAttn(num_chs[f], 'relu') for f in self.attn_indices])
+    # Attention blocks
+    self.attn_indices = attn_indices
+    self.attn_modules = nn.ModuleList([SelfAttn(num_chs[f], 'relu') for f in self.attn_indices])
 
   
   def forward(self, x):
     x = self.first_conv(x)
     j = 0
     for i, module in enumerate(self.res_layers):
-      x = module(x)
-      if i in self.attn_indices:
-        x, _ = self.attn_modules[j](x)
+      x = module[0](x)
+      x = module[1](x)
+      x = module[2](x)
+      x = module[3](x)
+      if i + 1 in self.attn_indices:
+        x = self.attn_modules[j](x)
         j += 1
        
     out = self.last_conv(x)
     return out
 
 class VQVAEDecoder(nn.Module):
-  def __init__(self, first_ch, last_ch, num_chs, depth, attn_indices, leaky=False):
+  def __init__(self, in_ch, out_ch, num_chs, depth, attn_indices, leaky=False):
     super(VQVAEDecoder,self).__init__()
     dilations = [3**i for i in range(depth)]
     dilations = dilations[::-1]
 
-    kernel_size =3
+    kernel_size = 8
     stride = 4
     output_padding = 0
     padding = (kernel_size + output_padding-stride)//2
 
-    self.first_conv = nn.Conv1d(first_ch, num_chs[0], 3, padding=1)
+    self.first_conv = nn.Conv1d(in_ch, num_chs[0], 3, padding=1)
 
     res_list = []
     for i in range(1, len(num_chs)):
-      res_list.extend([ResBlock(num_chs[i-1], dilations, depth, leaky),
-                      nn.BatchNorm1d(num_chs[i]),
-                      nn.LeakyReLU(0.2) if leaky else nn.ReLU()
-                      nn.ConvTranspose1d(num_chs[i-1], num_chs[i], kernel_size, stride=stride, padding=padding)])
-    self.res_layers =  nn.Sequential(*res_list)
+      res_list.append(nn.ModuleList([ResBlock(num_chs[i-1], dilations, depth, leaky),
+                      nn.BatchNorm1d(num_chs[i-1]),
+                      nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                      nn.ConvTranspose1d(num_chs[i-1], num_chs[i], kernel_size, stride=stride, padding=padding)]))
+
+    self.res_layers =  nn.ModuleList(res_list)
 
     # post processing layers
-    self.last_conv = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
-                                  nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                  nn.Conv1d(num_chs[-1], last_filter, 3, padding=1))
-        
+    self.last_act = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
+                                  nn.LeakyReLU(0.2) if leaky else nn.ReLU())
+
+    self.last_conv = nn.Conv1d(num_chs[-1], out_ch, 3, padding=1)
+
     self.attn_indices = attn_indices
-    self.attn_modules = nn.ModuleList([SNSelfAttn(num_chs[f], 'relu') for f in self.attn_indices])  
+    self.attn_modules = nn.ModuleList([SelfAttn(num_chs[f], 'relu') for f in self.attn_indices])  
   
   
   def forward(self, x):
     x = self.first_conv(x)
     j = 0
     for i, module in enumerate(self.res_layers):
-      x = module(x)
-      if i in self.attn_indices:
-        x, _ = self.attn_modules[j](x)
+      x = module[0](x)
+      x = module[1](x)
+      x = module[2](x)
+      x = module[3](x)
+      if i + 1  in self.attn_indices:
+        x = self.attn_modules[j](x)
         j += 1
        
-    out = self.last_conv(x)
+    out = self.last_conv(self.last_act(x))
     return out
 
 

@@ -21,6 +21,13 @@ def spectral_loss(real, fake, n_fft=1024, hop_length=256):
                                     - fake_spec.view(fake_spec.shape[0], -1), ord='fro')
   return spectral_loss
 
+def multispectral_loss(real, fake, n_fft_list=[2048, 1024, 512], hop_length_list=[512, 256, 128]):
+  losses = []
+  for n_fft, hop_length in zip(n_fft_list, hop_length_list):
+    losses.append(spectral_loss(real, fake, n_fft, hop_length))
+
+  return sum(losses) /len(losses)
+
 def mel_loss(real, fake, n_fft=1024, hop_length=256, sample_rate=44100):
   real_mel,_ = create_mel(real, n_fft, hop_length, sample_rate=sample_rate)
   fake_mel,_ = create_mel(fake, n_fft, hop_length, sample_rate=sample_rate)
@@ -28,15 +35,13 @@ def mel_loss(real, fake, n_fft=1024, hop_length=256, sample_rate=44100):
                                     - fake_mel.view(fake_mel.shape[0], -1), ord='fro')
   return mel_loss
 
-def vq_vae_loss(real, fake, codes, beta=0.25, spec=True):
-  l2_loss = F.mse_loss(fake, real)
+def vqvae_loss(real, fake, codes, beta=0.25, spec=True, spec_hp=1.0):
+  rec_loss = F.mse_loss(fake, real)
   lat_loss = latent_loss(codes, beta=beta)
   spec_loss = 0
   if spec:
-    spec_loss = spectral_loss(fake, real)
-  vqvae_loss = l2_loss + lat_loss + spec_loss
-  loss_list = [l2_loss.item(), lat_loss.item(), spec_loss.item()]
-  return vqvae_loss, loss_list
+    spec_loss = multispectral_loss(fake, real)
+  return rec_loss, lat_loss, spec_hp*spec_loss
 
 # GAN losses
 

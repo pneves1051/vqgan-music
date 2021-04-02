@@ -1,33 +1,41 @@
 import torch
 import time
 import numpy as np
-import defaultdict
+from collections import defaultdict
 import IPython.display as ipd
 
 class VQVAETrainer():
-  def __init__(self, vqvae, discriminator, transformer, dataloader, vqvae_loss, gan_loss, device, v_lr, d_lr, b_size, noise_dims, disc_steps=1):
+  def __init__(self, vqvae, discriminator, dataloader, vqvae_loss, gan_loss, hps, device):
     self.vqvae = vqvae
     self.discriminator = discriminator    
     self.dataloader = dataloader
     self.vqvae_loss = vqvae_loss
     self.gan_loss = gan_loss
     self.device=device
-    self.b_size = b_size
-    self.noise_dims = noise_dims
-    self.disc_steps = disc_steps
     
+    self.spec_hp = hps['model']['vqgan']['vqvae']['loss']['spectral_hp']
+    self.disc_steps = hps['model']['vqgan']['disc']['disc_steps']
+
     # betas=(0.5, 0.999)
-    self.v_optimizer = torch.optim.Adam(self.vqvae.parameters(), lr = v_lr)
-    self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(), lr = d_lr)
+    self.v_optimizer = torch.optim.Adam(self.vqvae.parameters(), 
+                                        lr = float(hps['model']['vqgan']['vqvae']['lr']))
+    self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(),
+                                        lr = float(hps['model']['vqgan']['disc']['lr']))
     #self.e_scheduler = torch.optim.lr_scheduler.StepLR(self.e_optimizer, 1.0, gamma=0.95) 
     #self.g_scheduler = torch.optim.lr_scheduler.StepLR(self.g_optimizer, 1.0, gamma=0.95) 
     #self.d_scheduler = torch.optim.lr_scheduler.StepLR(self.d_optimizer, 1.0, gamma=0.95) 
-    self.real_label = 0.9
-    self.fake_label = 0.
 
-    # noise fixo para avaliação do modelo
-    self.fixed_noise = torch.rand(1, self.noise_dims[0], self.noise_dims[1], device=device)
+    self.hps=hps
     
+  def get_loss_hp(self, rec_loss, gan_loss, last_layer):
+    rec_grads = torch.autograd.grad(rec_loss, last_layer, retain_graph=True)[0]
+    gan_grads = torch.autograd.grad(gan_loss, last_layer, retain_graph=True)[0]
+
+    disc_weight = torch.linalg.norm(rec_grads, 'fro') / (torch.linalg.norm(gan_grads, 'fro') + 1e-4)
+    disc_weight = torch.clamp(d_weight, 0.0, 1e4).detach()
+    
+    return disc_weight  
+  
   def train_epoch(self):
     self.vqvae.train()
     self.discriminator.train()
@@ -39,12 +47,13 @@ class VQVAETrainer():
     for data in self.dataloader:
       inputs = data['inputs'].to(self.device)
       targets = data['targets'].to(self.device)
-      annotations = data['annotations'].to(self.device)
+      conditions = data['condiditions'].to(self.device)
 
       outputs, codes = self.vqvae(inputs, annotations)
       
       # loss, loss_list = self.loss_fn(outputs, targets, top_codes, bottom_codes)
-      loss,_ = self.vqvae_loss(outputs, targets, codes)
+      loss_l = self.vqvae_loss(outputs, targets, codes)
+      loss = sum(loss_l)
       self.v_optimizer.zero_grad()
       loss.backward()
       #torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)     
@@ -86,12 +95,15 @@ class VQVAETrainer():
       
       #Treino com batch real
       real = data['inputs'].to(self.device)
-    
-      # Allow D to be updated
-      
+      conditions = data['conditions']
+      if conditions is not None:
+        conditions = conditions.to(self.device)
+          
       ##########      
       # D update
-      ##########      
+      ##########  
+      # Allow D to be updated
+          
       for p in self.discriminator.parameters():
         p.requires_grad = True
       
@@ -99,20 +111,22 @@ class VQVAETrainer():
 
         self.discriminator.zero_grad()
         #Forward of the real batch through D
-        d_real = self.discriminator(real)
+        d_real = self.discriminator(real, conditions)
         #torch.nn.utils.clip_grad_norm_(self.dis.parameters(), 0.5)
-        D_x = d_real.mean().item()
 
         # VQ_VAE reconstructions
-        reconstructed, codes = self.vqvae(real)
-        #reconstructed_gan, _, _ = self.generator(top_encoding.detach(), bottom_encoding.detach())
-
+        fake, codes = self.vqvae(real)
         # Fake batch goes through d
-        d_fake = self.discriminator(reconstructed.detach())
-        D_G_z1 = d_fake.mean().item()
-
-        #Cálculo do erro no batch de amostras reais
-        d_loss = self.gan_loss(d_real, d_fake, mode='d')
+        d_fake = self.discriminator(fake.detach())
+        
+        d_loss = 0
+        D_x = 0
+        D_G_z1 = 0
+        for score_real, score_fake in zip(d_real, d_fake):
+          D_x += d_real.mean().item()
+          D_G_z1 += d_fake.mean().item()
+          #Cálculo do erro no batch de amostras reais
+          d_loss += self.gan_loss(score_real, score_fake, mode='d')
 
         #Calcula os gradientes para o batch
         d_loss.backward()
@@ -127,16 +141,23 @@ class VQVAETrainer():
         p.requires_grad = False      
       
       self.vqvae.zero_grad()
-      #self.discriminator.zero_grad()
      
-      d_fake = self.discriminator(reconstructed)
-      D_G_z2 = d_fake.mean().item()       
-        
-      vae_loss, vqvae_loss_list = self.vqvae_loss(real, reconstructed, codes)
-      #Calculamos o erro de G com base nesse output
-      g_loss = self.gan_loss(d_fake, mode='g')
-      #AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA      
-      (vae_loss + g_loss).backward()
+      fake, codes = self.vqvae(real)
+
+      d_fake = self.discriminator(fake, conditions)
+       
+      rec_loss, lat_loss, spec_loss = self.vqvae_loss(real, fake, codes)
+            
+      g_loss = 0
+      for score_fake in d_fake:
+        D_G_z2 += score_fake.mean().item()
+        # Calculate G loss
+        g_loss += self.gan_loss(score_fake, mode='g')
+      
+      loss_hp = self.get_loss_hp(rec_loss, gan_loss, self.vq_vae.get_last_layer)
+      #AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  
+      total_loss = rec_loss + lat_loss + spec_loss + loss_hp*g_loss    
+      total_loss.backward()
       # Atualizamos G e E
       self.v_optimizer.step()
            
@@ -147,22 +168,22 @@ class VQVAETrainer():
         print('{:3d} batches | time: {:5.2f}s | Loss_D: {:5.4f} | Loss_G: {} | VQ_VAE_loss: {} | '
               ' | D(x): {:5.4f} | D(G(z)): {:5.4f} / {:5.4f} ' 
               .format(index, elapsed, d_loss.item(), g_loss.item(),
-                      vqvae_loss_list, D_x, D_G_z1, D_G_z2))              
+                      [rec_loss.item(), lat_loss.item(), spec_loss.item()], D_x, D_G_z1, D_G_z2))              
         start_time = time.time()
 
-      # Salva Losses para plotar depois
+      # Save losses to plot later
       d_losses.append(d_loss.item())
       g_losses.append(g_loss.item())
-      vqvae_losses.append(vqvae_loss_list)
+      vqvae_losses.append([rec_loss.item(), lat_loss.item(), spec_loss.item()])
       
     return np.mean(d_losses, 0), np.mean(g_losses, 0), np.mean(vqvae_losses, 0)
 
-  def train(self, EPOCHS, checkpoint_dir, fixed_noise = None, train_gan=False):
+  def train(self, EPOCHS, checkpoint_dir, train_gan=False):
     history = defaultdict(list)
     best_d_loss = 0.
     best_g_loss = 0.
 
-    #Vetor para armazenar resultados do gerador
+    # list to store generator outputs
     samples=[]
 
     for epoch in range(EPOCHS):
@@ -200,9 +221,13 @@ class VQVAETrainer():
     return samples
 
   def evaluate(self, noise):
+    data = next(iter(self.dataloader))
+    real = data['inputs'].to(self.device)
+    conditions = data['conditions']
+    if conditions is not None:
+      conditions = conditions.to(self.device)
     with torch.no_grad():
-      fake = self.vqvae(noise)[0].squeeze(0).detach().cpu()
-      ipd.Audio(fake, rate=44100)
+      fake = self.vqvae(real).detach().cpu()
       return fake
     
   def save_model(self, checkpoint_dir):
