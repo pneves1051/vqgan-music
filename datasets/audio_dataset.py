@@ -9,7 +9,7 @@ import math
 import numpy as np
 
 class AudioDatasetNoCond(torch.utils.data.IterableDataset):
-  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size):
+  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, use_torch=True):
     """
     Args:
       dataset_dir (string): dataset directory
@@ -17,6 +17,7 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
       window_size: number of samples of each item
       hop_length: step size
       batch_size: batch_size
+      use_torch: whether to use torchaudio or not
     """
     self.dataset_dir = dataset_dir
     self.file_list = glob.glob(dataset_dir)
@@ -25,6 +26,7 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
     self.window_size = int(2**(np.ceil(np.log2(sr*window_size))))
     self.hop_len = int(2**(np.ceil(np.log2(sr*hop_len))))
     self.batch_size = batch_size
+    self.use_torch = True
 
     self.start = 0
     self.end = len(self.file_list)
@@ -46,9 +48,11 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
       if music_id != '':
         
         # carrega arquivo de áudio
-        #signal, orig_sr = torchaudio.load(file)
-        signal, orig_sr = librosa.load(file, sr=self.sr, mono=False)
-        signal = torch.Tensor(signal)
+        if self.use_torch:
+          signal, orig_sr = torchaudio.load(file)
+        else:
+          signal, orig_sr = librosa.load(file, sr=self.sr, mono=False)
+          signal = torch.Tensor(signal)
         if self.sr != orig_sr:
           signal = torchaudio.transforms.Resample(orig_sr, self.sr)(signal)
         # normalization
