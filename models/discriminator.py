@@ -1,13 +1,11 @@
 # Patch based multiscale discriminator
 import torch
-import torchaudio
-torchaudio.set_audio_backend("sox_io")
 import torch.nn as nn
 import torch.nn.functional as F
 
 
 class ModuleDiscriminator(nn.Module):
-  def __init__(self, input_channels, num_filters, window_size, cont):
+  def __init__(self, in_ch, n_chs, window_size, cont):
     super(ModuleDiscriminator, self).__init__()
     shuffle_n = 0
  
@@ -15,18 +13,18 @@ class ModuleDiscriminator(nn.Module):
     stride=4
     padding = (kernel_size-stride)//2
     
-    self.pre = nn.Sequential(nn.Conv1d(input_channels+1, num_filters[0], 9, 
+    self.pre = nn.Sequential(nn.Conv1d(in_ch, n_chs[0], 9, 
                                       stride=1, padding=4),
                               nn.LeakyReLU(0.2))
     
     module_list = []
-    for i in range(1, len(num_filters)):
-      module_list.append(nn.Sequential(nn.Conv1d(num_filters[i-1], num_filters[i], kernel_size, padding=padding, stride=stride),
+    for i in range(1, len(n_chs)):
+      module_list.append(nn.Sequential(nn.Conv1d(n_chs[i-1], n_chs[i], kernel_size, padding=padding, stride=stride),
                         nn.LeakyReLU(0.2)))
     
     self.discriminator = nn.ModuleList(module_list)
 
-    self.post = nn.Sequential(nn.Linear(num_filters[-1]*(window_size//cont), 1))
+    self.post = nn.Sequential(nn.Linear(n_chs[-1]*(window_size//cont), 1))
     
  
   def forward(self, x):
@@ -43,22 +41,26 @@ class ModuleDiscriminator(nn.Module):
     output = self.post(h.flatten(1))
     results.append(output)    
 
-    return results[:-1], results[-1]
+    return results[-1]
 
 class MultiDiscriminator(nn.Module):
-  def __init__(self, input_channels, num_classes, num_filters, num_d, window_size, cont):
+  def __init__(self, in_ch, n_chs, num_d, window_size, cont, n_classes=None):
     super(MultiDiscriminator, self).__init__()
  
-    self.num_filters = num_filters
+    self.in_ch = in_ch+1 if n_classes is not None else in_ch
+    self.n_chs = n_chs
     self.num_d = num_d
- 
-    self.cond = nn.Sequential(nn.Embedding(num_classes, 64),
-                              nn.Linear(64, window_size),
-                              Reshape((1, window_size)))
+    self.n_classes = n_classes    
+    
+    if n_classes is not None:
+
+      self.cond = nn.Sequential(nn.Embedding(n_classes, 64),
+                                nn.Linear(64, window_size),
+                                Reshape((1, window_size)))
 
     
     self.discriminators = nn.ModuleList(
-        [ModuleDiscriminator(input_channels, num_filters, window_size, cont*(2**(i)))
+        [ModuleDiscriminator(self.in_ch, n_chs, window_size, cont*(2**(i)))
          for i in range(num_d)]
     )
  
@@ -69,11 +71,11 @@ class MultiDiscriminator(nn.Module):
        
  
   def forward(self, x, labels):
-    labels = torch.argmax(labels, dim=1)
-
-    h = x     
-    y = self.cond(labels)
-    h = torch.cat([h, y], dim=1)
+    h = x
+    if self.n_classes is not None and labels is not None:
+      labels = torch.argmax(labels, dim=1)
+      y = self.cond(labels)
+      h = torch.cat([h, y], dim=1)
     
     #ann_cond = self.ann_cond(annotations)
     #lyrics_cond = self.lyrics_cond(lyrics)

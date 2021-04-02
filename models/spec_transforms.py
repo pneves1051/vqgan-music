@@ -2,7 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import torchaudio
-torchaudio.set_audio_backend("sox_io")
+torchaudio.set_audio_backend("soundfile")
 
 
 def inst_freq_np(phase):

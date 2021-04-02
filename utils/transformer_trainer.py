@@ -11,10 +11,6 @@ class TransformerTrainer():
     self.optimizer = torch.optim.Adam(self.model.parameters(), lr = lr)
     self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 1.0, gamma=0.95)
     
-  def get_loss_hp(vqvae_loss, gan_loss):
-    hp = 1
-    return return vq_vae_loss + hp*gan_loss
-  
   def train_epoch(self):
     self.model = self.model.train()
        

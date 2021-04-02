@@ -1,0 +1,35 @@
+dataset:
+    b_size: 8
+    num_workers: 3
+    pin_memory: True
+    sample_rate: 44100
+    win_size: 2
+    hop_len: 2
+
+model:
+    vqgan:
+        vqvae:
+            embed_dim: 256
+            n_embed: 1024
+            in_ch: 1
+            out_ch: 1 
+            ch: 128
+            ch_mult: [1, 1, 2, 2, 4] # downsampling factor: len(ch_mult) - 1
+            attn_indices: [2]
+            dilation_factor: 3
+            dilation_depth: 3
+            lr: 1e-4            
+            loss: 
+                spectral: true
+                spectral_hp: 1.0
+                spectral_n_fft: [2048, 1024, 512]
+                spectral_hop_len: [512, 256, 128]
+        disc:
+            in_ch: 1
+            ch: 128
+            ch_mult: [1, 1, 2, 2, 4]
+            attn_indices: [2]
+            disc_steps: 1
+            lr: 1e-4
+  
+    transformer:
