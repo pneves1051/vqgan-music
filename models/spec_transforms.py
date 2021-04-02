@@ -2,8 +2,6 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import torchaudio
-torchaudio.set_audio_backend("soundfile")
-
 
 def inst_freq_np(phase):
   un_phase = np.unwrap(phase, axis=1)
