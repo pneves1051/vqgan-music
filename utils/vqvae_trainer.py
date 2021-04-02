@@ -117,7 +117,7 @@ class VQVAETrainer():
         # VQ_VAE reconstructions
         fake, codes = self.vqvae(real)
         # Fake batch goes through d
-        d_fake = self.discriminator(fake.detach())
+        d_fake = self.discriminator(fake.detach(), conditions)
         
         d_loss = 0
         D_x = 0
