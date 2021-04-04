@@ -8,7 +8,7 @@ from models.spec_transforms import stft, spec, create_mel
 def latent_loss(codes, beta=0.25):
   #z_e, z_q = codes[0], codes[1]
   # Assumes shape= (batch_size, length, emb_dim)
-  z_e, z_q = torch.split(codes, int(codes.shape[-1]/2), dim=-11)
+  z_e, z_q = torch.split(codes, int(codes.shape[-1]/2), dim=-1)
   #print(z_e.norm(), z_q.norm())
   vq_loss=torch.mean((z_e.detach()-z_q)**2)
   commit_loss = torch.mean((z_e-z_q.detach())**2)
