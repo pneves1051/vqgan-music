@@ -41,7 +41,7 @@ def vqvae_loss(real, fake, codes, beta=0.25, spec=True, spec_hp=1.0):
   lat_loss = latent_loss(codes, beta=beta)
   spec_loss = 0
   if spec:
-    spec_loss = multispectral_loss(fake, real)
+    spec_loss = multispectral_loss(fake.flatten(1), real.flatten(1))
   return l2_loss, lat_loss, spec_hp*spec_loss
 
 # GAN losses
