@@ -70,7 +70,7 @@ class MultiDiscriminator(nn.Module):
     ))
        
  
-  def forward(self, x, labels):
+  def forward(self, x, labels=None):
     h = x
     if self.n_classes is not None and labels is not None:
       labels = torch.argmax(labels, dim=1)

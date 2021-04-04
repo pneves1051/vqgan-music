@@ -61,8 +61,7 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
         #signal = 2*((torchaudio.transforms.MuLawEncoding(256)(signal) + 1)/256.) -1.
         assert not torch.any(signal.abs() > 1.)
         signal = signal.mean(0, keepdim=True)
-        print(signal.shape)
-
+        
         for j in range(0, signal.shape[1] - self.window_size, self.hop_len):
           
           current_signal = signal[:, j: j+self.window_size]
@@ -297,3 +296,16 @@ class AudioDataset2(torch.utils.data.IterableDataset):
       iter_start = self.start + worker_id * per_worker
       iter_end = min(iter_start + per_worker, self.end)
     return self.read_dataset(self.file_list[iter_start: iter_end],self.batch_size)
+
+class DummyDataset(torch.torch.utils.data.IterableDataset):
+  def __init__(self, sr, window_size):
+    self.sr = sr
+    self.window_size = int(2**(np.ceil(np.log2(sr*window_size))))
+
+  def produce_random_batch(self, n_iter=1):
+    for _ in range(n_iter):
+      batch = {'inputs': torch.randn((1, 1, self.window_size)), 'conditions': []}
+      yield batch
+    
+  def __iter__(self):
+    return self.produce_random_batch(1)

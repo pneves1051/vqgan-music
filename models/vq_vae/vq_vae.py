@@ -34,7 +34,7 @@ class VQVAE(nn.Module):
     encoding = self.enc_conv(encoding)
     quant, codes, indices = self.vector_quantizer(encoding.permute(0, 2, 1))
     quant = quant.permute(0, 2, 1)
-
+    
     return encoding, quant, codes, indices
 
   def decode(self, quant):

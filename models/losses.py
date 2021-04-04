@@ -7,7 +7,8 @@ from models.spec_transforms import stft, spec, create_mel
 
 def latent_loss(codes, beta=0.25):
   #z_e, z_q = codes[0], codes[1]
-  z_e, z_q = torch.split(codes, int(codes.shape[-1]/2), dim=-1)
+  # Assumes shape= (batch_size, length, emb_dim)
+  z_e, z_q = torch.split(codes, int(codes.shape[-1]/2), dim=-11)
   #print(z_e.norm(), z_q.norm())
   vq_loss=torch.mean((z_e.detach()-z_q)**2)
   commit_loss = torch.mean((z_e-z_q.detach())**2)
@@ -36,16 +37,15 @@ def mel_loss(real, fake, n_fft=1024, hop_length=256, sample_rate=44100):
   return mel_loss
 
 def vqvae_loss(real, fake, codes, beta=0.25, spec=True, spec_hp=1.0):
-  rec_loss = F.mse_loss(fake, real)
+  l2_loss = F.mse_loss(fake, real)
   lat_loss = latent_loss(codes, beta=beta)
   spec_loss = 0
   if spec:
     spec_loss = multispectral_loss(fake, real)
-  return rec_loss, lat_loss, spec_hp*spec_loss
+  return l2_loss, lat_loss, spec_hp*spec_loss
 
 # GAN losses
 
-# INCLUDE D OR G TO CALCULATE PREDS AND INTERPOLATION
 def wgan_loss(discriminator, real, fake, d_real, d_fake, mode):
   if mode == 'd':
     d_loss = -(d_real.mean() - d_fake.mean())

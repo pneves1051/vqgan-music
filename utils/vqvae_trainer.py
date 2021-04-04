@@ -78,7 +78,7 @@ class VQVAETrainer():
     train_loss_list = np.mean(losses_list, axis=0)
     return train_loss, train_loss_list
     
-  def train_epoch_gan(self):
+  def train_epoch_gan(self, log_interval=20):
     self.vqvae.train()
     self.discriminator.train()
 
@@ -123,8 +123,8 @@ class VQVAETrainer():
         D_x = 0
         D_G_z1 = 0
         for score_real, score_fake in zip(d_real, d_fake):
-          D_x += d_real.mean().item()
-          D_G_z1 += d_fake.mean().item()
+          D_x += score_real.mean().item()
+          D_G_z1 += score_fake.mean().item()
           #Cálculo do erro no batch de amostras reais
           d_loss += self.gan_loss(score_real, score_fake, mode='d')
 
@@ -146,8 +146,9 @@ class VQVAETrainer():
 
       d_fake = self.discriminator(fake, conditions)
        
-      rec_loss, lat_loss, spec_loss = self.vqvae_loss(real, fake, codes)
-            
+      l2_loss, lat_loss, spec_loss = self.vqvae_loss(real, fake, codes)
+      rec_loss = l2_loss + spec_loss
+
       g_loss = 0
       for score_fake in d_fake:
         D_G_z2 += score_fake.mean().item()
@@ -156,13 +157,12 @@ class VQVAETrainer():
       
       loss_hp = self.get_loss_hp(rec_loss, gan_loss, self.vq_vae.get_last_layer)
       #AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  
-      total_loss = rec_loss + lat_loss + spec_loss + loss_hp*g_loss    
+      total_loss = rec_loss + lat_loss + loss_hp*g_loss    
       total_loss.backward()
-      # Atualizamos G e E
+      # Update G
       self.v_optimizer.step()
            
-      #Estatísticas de treinamento        
-      log_interval = 20
+      # Training statistics    
       if index % log_interval == 0 and index > 0:
         elapsed = time.time() - start_time
         print('{:3d} batches | time: {:5.2f}s | Loss_D: {:5.4f} | Loss_G: {} | VQ_VAE_loss: {} | '
@@ -178,7 +178,7 @@ class VQVAETrainer():
       
     return np.mean(d_losses, 0), np.mean(g_losses, 0), np.mean(vqvae_losses, 0)
 
-  def train(self, EPOCHS, checkpoint_dir, train_gan=False):
+  def train(self, EPOCHS, checkpoint_dir, train_gan=False, log_interval=20):
     history = defaultdict(list)
     best_d_loss = 0.
     best_g_loss = 0.
@@ -192,7 +192,7 @@ class VQVAETrainer():
 
       print('-' * 10)
       if train_gan:
-        d_loss, g_loss, vae_loss_list  = self.train_epoch_gan()
+        d_loss, g_loss, vae_loss_list  = self.train_epoch_gan(log_interval=log_interval)
         
         print('| End of epoch {:3d}  | time: {:5.2f}s | loss_D: {:5.2f} |'
               'loss_G: {} | loss_VAE: {} '.format(
@@ -221,6 +221,7 @@ class VQVAETrainer():
     return samples
 
   def evaluate(self, noise):
+    self.vqvae.eval()
     data = next(iter(self.dataloader))
     real = data['inputs'].to(self.device)
     conditions = data['conditions']
