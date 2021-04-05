@@ -27,12 +27,12 @@ class VQVAETrainer():
 
     self.hps=hps
     
-  def get_loss_hp(self, rec_loss, gan_loss, last_layer):
+  def get_loss_hp(self, rec_loss, g_loss, last_layer):
     rec_grads = torch.autograd.grad(rec_loss, last_layer, retain_graph=True)[0]
-    gan_grads = torch.autograd.grad(gan_loss, last_layer, retain_graph=True)[0]
-
-    disc_weight = torch.linalg.norm(rec_grads, 'fro') / (torch.linalg.norm(gan_grads, 'fro') + 1e-4)
-    disc_weight = torch.clamp(d_weight, 0.0, 1e4).detach()
+    g_grads = torch.autograd.grad(g_loss, last_layer, retain_graph=True)[0]
+    
+    disc_weight = torch.linalg.norm(rec_grads.flatten(1), 'fro') /(torch.linalg.norm(g_grads.flatten(1), 'fro') + 1e-4)
+    disc_weight = torch.clamp(disc_weight, 0.0, 1e4).detach()
     
     return disc_weight  
   
@@ -150,12 +150,13 @@ class VQVAETrainer():
       rec_loss = l2_loss + spec_loss
 
       g_loss = 0
+      D_G_z2 = 0
       for score_fake in d_fake:
         D_G_z2 += score_fake.mean().item()
         # Calculate G loss
-        g_loss += self.gan_loss(score_fake, mode='g')
+        g_loss += self.gan_loss(score_fake=score_fake, mode='g')
       
-      loss_hp = self.get_loss_hp(rec_loss, gan_loss, self.vq_vae.get_last_layer)
+      loss_hp = self.get_loss_hp(rec_loss, g_loss, self.vqvae.get_last_layer())
       #AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  
       total_loss = rec_loss + lat_loss + loss_hp*g_loss    
       total_loss.backward()
@@ -166,15 +167,15 @@ class VQVAETrainer():
       if index % log_interval == 0 and index > 0:
         elapsed = time.time() - start_time
         print('{:3d} batches | time: {:5.2f}s | Loss_D: {:5.4f} | Loss_G: {} | VQ_VAE_loss: {} | '
-              ' | D(x): {:5.4f} | D(G(z)): {:5.4f} / {:5.4f} ' 
+              ' | D(x): {:5.4f} | D(G(z)): {:5.4f} / {:5.4f} | loss_hp: {}' 
               .format(index, elapsed, d_loss.item(), g_loss.item(),
-                      [rec_loss.item(), lat_loss.item(), spec_loss.item()], D_x, D_G_z1, D_G_z2))              
+                      [l2_loss.item(), lat_loss.item(), spec_loss.item()], D_x, D_G_z1, D_G_z2, loss_hp.item()))              
         start_time = time.time()
 
       # Save losses to plot later
       d_losses.append(d_loss.item())
       g_losses.append(g_loss.item())
-      vqvae_losses.append([rec_loss.item(), lat_loss.item(), spec_loss.item()])
+      vqvae_losses.append([l2_loss.item(), lat_loss.item(), spec_loss.item()])
       
     return np.mean(d_losses, 0), np.mean(g_losses, 0), np.mean(vqvae_losses, 0)
 

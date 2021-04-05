@@ -304,7 +304,7 @@ class DummyDataset(torch.torch.utils.data.IterableDataset):
 
   def produce_random_batch(self, n_iter=1):
     for _ in range(n_iter):
-      batch = {'inputs': torch.randn((1, 1, self.window_size)), 'conditions': []}
+      batch = {'inputs': torch.randn((1, 1, self.window_size)), 'conditions': None}
       yield batch
     
   def __iter__(self):
