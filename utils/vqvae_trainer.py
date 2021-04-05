@@ -168,8 +168,8 @@ class VQVAETrainer():
         elapsed = time.time() - start_time
         print('{:3d} batches | time: {:5.2f}s | Loss_D: {:5.4f} | Loss_G: {} | VQ_VAE_loss: {} | '
               ' | D(x): {:5.4f} | D(G(z)): {:5.4f} / {:5.4f} | loss_hp: {}' 
-              .format(index, elapsed, d_loss.item(), g_loss.item(),
-                      [l2_loss.item(), lat_loss.item(), spec_loss.item()], D_x, D_G_z1, D_G_z2, loss_hp.item()))              
+              .format(index, elapsed, np.mean(d_losses, 0), np.mean(g_losses, 0),
+                      np.mean(vqvae_losses, 0), D_x, D_G_z1, D_G_z2, loss_hp.item()))              
         start_time = time.time()
 
       # Save losses to plot later
