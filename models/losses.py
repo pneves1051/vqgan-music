@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models.spec_transforms import stft, spec, create_mel
+from models.spec_transforms import stft, spec, create_mel, squeeze
 
 # VQ_VAE losses
 
@@ -16,11 +16,14 @@ def latent_loss(codes, beta=0.25):
   return latent_loss
 
 def spectral_loss(real, fake, n_fft=1024, hop_length=256):
-  real_spec = spec(stft(real, n_fft = 1024, hop_length=256))
-  fake_spec = spec(stft(fake, n_fft = 1024, hop_length=256))
-  spectral_loss = torch.linalg.norm(real_spec.view(real_spec.shape[0], -1) 
-                                    - fake_spec.view(fake_spec.shape[0], -1), ord='fro')
-  return spectral_loss
+  real_spec = torch.log(spec(stft(squeeze(real), n_fft = n_fft, hop_length=hop_length)))
+  fake_spec = torch.log(spec(stft(squeeze(fake), n_fft = n_fft, hop_length=hop_length)))
+  #spectral_loss = torch.linalg.norm(real_spec.view(real_spec.shape[0], -1) 
+  #                                  - fake_spec.view(fake_spec.shape[0], -1), ord='fro')
+  spec_loss = F.mse_loss(real_spec,fake_spec)
+  #print(real_spec.max(), fake_spec.max(), spec_loss)
+  
+  return spec_loss
 
 def multispectral_loss(real, fake, n_fft_list=[2048, 1024, 512], hop_length_list=[512, 256, 128]):
   losses = []
@@ -41,7 +44,7 @@ def vqvae_loss(real, fake, codes, beta=0.25, spec=True, spec_hp=1.0):
   lat_loss = latent_loss(codes, beta=beta)
   spec_loss = 0
   if spec:
-    spec_loss = multispectral_loss(fake.flatten(1), real.flatten(1))
+    spec_loss = multispectral_loss(fake, real)
   return l2_loss, lat_loss, spec_hp*spec_loss
 
 # GAN losses
@@ -66,13 +69,15 @@ def wgan_loss(discriminator, real, fake, d_real, d_fake, mode):
     g_loss = -d_fake.mean()   
     return g_loss
 
-def hinge_loss(d_real, d_fake, mode):
+def hinge_loss(score_real=None, score_fake=None, mode='d'):
   if mode == 'd':
-    real_loss = torch.mean(F.relu(1. - d_real))
-    fake_loss = torch.mean(F.relu(1. + d_fake))
+    assert (score_real is not None and score_fake is not None)
+    real_loss = torch.mean(F.relu(1. - score_real))
+    fake_loss = torch.mean(F.relu(1. + score_fake))
     d_loss = 0.5*(real_loss + fake_loss)
     return d_loss
   elif mode == 'g':
-    g_loss = -d_fake.mean()
+    assert score_fake is not None
+    g_loss = -score_fake.mean()
     return g_loss
 

@@ -150,10 +150,26 @@ def invert_mel_np(mel_spec, n_fft, hop_length):
 pi = torch.acos(torch.zeros(1)).item()
 
 def stft(input, n_fft=1024, hop_length=256):
-  return torch.stft(input, n_fft=n_fft, hop_length=hop_length, window=torch.hann_window(n_fft, device=input.device), return_complex=True)
+  stft = torch.stft(input, n_fft=n_fft, hop_length=hop_length,
+          window=torch.hann_window(n_fft, device=input.device),
+           return_complex=True)
+  stft = torch.view_as_real(stft)
+  return stft
   
 def spec(stft):
-  return torch.linalg.norm(stft, ord='fro', dim=-1)
+  #print(torch.linalg.norm(stft, ord=2, dim=-1) == torch.norm(stft, p=2, dim=-1))
+  spec = torch.linalg.norm(stft, ord=2, dim=-1)
+  return spec
+  #return torch.norm(stft, ord=2, dim=-1)
+
+
+def squeeze(x):
+  if len(x.shape) == 3:
+    assert x.shape[1] in [1,2]
+    x = torch.mean(x, 1)
+  if len(x.shape) != 2:
+    raise ValueError(f'Unknown input shape {x.shape}')
+  return x
 
 def diff(inputs, dim=-1):
   size = inputs.shape
@@ -220,7 +236,7 @@ def create_stft(signal, n_fft, hop_length):
  
   mag, phase = torchaudio.functional.magphase(stft)
   
-  phase = np.angle(phase)
+  phase = torch.angle(phase)
   mag = torch.abs(mag)
   #mag = mag - mag.mean()
   #mag = mag/np.max(np.abs(mag))
