@@ -62,14 +62,12 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
         assert not torch.any(signal.abs() > 1.)
         signal = signal.mean(0, keepdim=True)
         
-        for j in range(0, signal.shape[1] - self.window_size, self.hop_len):
+        for j in range(0, signal.shape[1] - self.window_size + 1, self.hop_len):
           
           current_signal = signal[:, j: j+self.window_size]
           ids.append(torch.Tensor([int(music_id)]))
           audio.append(current_signal)
-          #####ATTENTION: NOT USING WHOLE SLICE
-         
-
+          
           if len(audio) >= batch_size:
             data_batch = {'ids': [], 'inputs': [], 'targets': [], 'conditions': None}
             data_batch['ids'] = torch.stack(ids)
@@ -156,7 +154,7 @@ class AudioDataset(torch.utils.data.IterableDataset):
         # anotações de alerta e valência
         condition = torch.Tensor([a[1:] for a in self.conditions if int(a[0]) == int(music_id)])
               
-        for j in range(0, signal.shape[1] -self.window_size, self.hop_length):
+        for j in range(0, signal.shape[1] -self.window_size + 1 , self.hop_length):
           
           current_signal = signal[:, j: j+self.window_size]
           ids.append(torch.Tensor([int(music_id)]))
