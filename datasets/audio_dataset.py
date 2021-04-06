@@ -9,7 +9,7 @@ import math
 import numpy as np
 
 class AudioDatasetNoCond(torch.utils.data.IterableDataset):
-  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, use_torch=True):
+  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, use_torch=True, extension='.wav'):
     """
     Args:
       dataset_dir (string): dataset directory
@@ -26,11 +26,12 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
     self.window_size = int(2**(np.ceil(np.log2(sr*window_size))))
     self.hop_len = int(2**(np.ceil(np.log2(sr*hop_len))))
     self.batch_size = batch_size
-    self.use_torch = True
+    self.use_torch = use_torch
+    self.extension = extension
 
     self.start = 0
     self.end = len(self.file_list)
-    
+        
   @property
   def shuffled_file_list(self):
     shuffled_list = self.file_list.copy()
@@ -40,14 +41,13 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
   def read_dataset(self, file_list, batch_size):
     shuffled_list = file_list.copy()
     random.shuffle(shuffled_list)    
+    
+    audio=[]
+    ids = []
     for file in shuffled_list:
-      ids=[]
-      audio=[]
-            
-      music_id = os.path.basename(str(file)).replace('.mp3', '')
-      if music_id != '':
-        
-        # carrega arquivo de áudio
+      id, ext = os.path.splitext(os.path.basename(str(file)))
+      if id != '' and ext == self.extension:
+        # load file
         if self.use_torch:
           signal, orig_sr = torchaudio.load(file)
         else:
@@ -61,22 +61,23 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
         #signal = 2*((torchaudio.transforms.MuLawEncoding(256)(signal) + 1)/256.) -1.
         assert not torch.any(signal.abs() > 1.)
         signal = signal.mean(0, keepdim=True)
-        
         for j in range(0, signal.shape[1] - self.window_size + 1, self.hop_len):
           
           current_signal = signal[:, j: j+self.window_size]
-          ids.append(torch.Tensor([int(music_id)]))
+          try:
+            ids.append(torch.Tensor([int(id)]))
+          except:
+            ids.append(torch.Tensor([self.file_list.index(file)]))
           audio.append(current_signal)
-          
-          if len(audio) >= batch_size:
-            data_batch = {'ids': [], 'inputs': [], 'targets': [], 'conditions': None}
-            data_batch['ids'] = torch.stack(ids)
-            data_batch['inputs'] =  torch.stack(audio)
-                             
-            ids=[]
+          if len(audio) >= self.batch_size:
+            batch = {'ids': [], 'inputs': [], 'conditions': None}
+            batch['ids'] = torch.stack(ids)
+            batch['inputs'] =  torch.stack(audio)
+                      
+            ids = []
             audio = []
                        
-            yield data_batch        
+            yield batch        
 
   def __iter__(self):
     worker_info = torch.utils.data.get_worker_info()
