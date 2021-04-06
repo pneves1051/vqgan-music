@@ -8,8 +8,8 @@ class Transformer(nn.Module):
     self.src_mask = None
     self.pos_encoder = PositionalEncoding(emb_dim, dropout)
     self.embedding = nn.Embedding(num_embeddings, emb_dim)
-    #self.embedding.load_state_dict({'weight': codebook})
-    #self.embedding.requires_grad=False
+    self.embedding.load_state_dict({'weight': codebook})
+    self.embedding.requires_grad=False
 
     encoder_layer = nn.TransformerEncoderLayer(emb_dim, nhead, dropout=dropout)
     self.transformer_encoder = nn.TransformerEncoder(encoder_layer, nlayers)
@@ -41,8 +41,5 @@ class Transformer(nn.Module):
         
     src = self.transformer_encoder(src, mask)
     output = self.decoder(src)
-
-    #top_cond = self.upsampler1(top_output.permute(1, 0, 2))
-    #top_cond = self.upsampler2(top_cond.permute(0, 2, 1)).permute(2, 0, 1)
 
     return output.permute(1, 2, 0)

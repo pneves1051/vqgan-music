@@ -5,7 +5,7 @@ import torch.nn.functional as F
 
 
 class ModuleDiscriminator(nn.Module):
-  def __init__(self, in_ch, n_chs, window_size, cont):
+  def __init__(self, in_ch, num_chs, window_size, cont):
     super(ModuleDiscriminator, self).__init__()
     shuffle_n = 0
  
@@ -13,20 +13,21 @@ class ModuleDiscriminator(nn.Module):
     stride=4
     padding = (kernel_size-stride)//2
     
-    self.pre = nn.Sequential(nn.Conv1d(in_ch, n_chs[0], 9, 
+    self.pre = nn.Sequential(nn.Conv1d(in_ch, num_chs[0], 9, 
                                       stride=1, padding=4),
                               nn.LeakyReLU(0.2))
     
     module_list = []
-    for i in range(1, len(n_chs)):
-      module_list.append(nn.Sequential(nn.Conv1d(n_chs[i-1], n_chs[i], kernel_size, padding=padding, stride=stride),
+    for i in range(1, len(num_chs)):
+      module_list.append(nn.Sequential(nn.Conv1d(num_chs[i-1], num_chs[i], kernel_size, padding=padding, stride=stride),
                         nn.LeakyReLU(0.2)))
+    
+    module_list.append(nn.Conv1d(num_chs[-1], 1, kernel_size=3, stride=1, padding=1))
     
     self.discriminator = nn.ModuleList(module_list)
 
-    self.post = nn.Sequential(nn.Linear(n_chs[-1]*(window_size//cont), 1))
-    
- 
+    #self.post = nn.Sequential(nn.Linear(num_chs[-1]*(window_size//cont), 1))
+     
   def forward(self, x):
     results = []
     h = x
@@ -38,17 +39,17 @@ class ModuleDiscriminator(nn.Module):
       h = module(h)
       #print(h.shape)
       results.append(h)
-    output = self.post(h.flatten(1))
-    results.append(output)    
+    #output = self.post(h.flatten(1))
+    #results.append(output)    
 
     return results[-1]
 
 class MultiDiscriminator(nn.Module):
-  def __init__(self, in_ch, n_chs, num_d, window_size, cont, n_classes=None):
+  def __init__(self, in_ch, num_chs, num_d, window_size, cont, n_classes=None):
     super(MultiDiscriminator, self).__init__()
  
     self.in_ch = in_ch+1 if n_classes is not None else in_ch
-    self.n_chs = n_chs
+    self.num_chs = num_chs
     self.num_d = num_d
     self.n_classes = n_classes    
     
@@ -60,7 +61,7 @@ class MultiDiscriminator(nn.Module):
 
     
     self.discriminators = nn.ModuleList(
-        [ModuleDiscriminator(self.in_ch, n_chs, window_size, cont*(2**(i)))
+        [ModuleDiscriminator(self.in_ch, num_chs, window_size, cont*(2**(i)))
          for i in range(num_d)]
     )
  

@@ -27,7 +27,7 @@ model:
         disc:
             in_ch: 1
             ch: 32
-            ch_mult: [1, 1, 2, 2, 4]
+            ch_mult: [1, 1, 2, 2, 4, 4, 8]
             attn_indices: [2]
             disc_steps: 1
             lr: 1e-4
