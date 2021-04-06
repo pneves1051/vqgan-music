@@ -26,8 +26,8 @@ model:
                 spectral_hop_len: [512, 256, 128]
         disc:
             in_ch: 1
-            ch: 128
-            ch_mult: [1, 1, 2, 2, 4]
+            ch: 64
+            ch_mult: [1, 1, 2, 2, 4, 4, 8]
             attn_indices: [2]
             disc_steps: 1
             lr: 1e-4
