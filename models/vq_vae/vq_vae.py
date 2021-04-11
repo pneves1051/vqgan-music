@@ -1,3 +1,4 @@
+import numpy as np
 import torch
 import torch.nn as nn
 from models.vq_vae.modules import VQVAEEncoder, VQVAEDecoder, VectorQuantizer
@@ -45,8 +46,8 @@ class VQVAE(nn.Module):
     return reconstructed
 
   # a way to get the codebook
-  def get_vq_vae_codebooks(self):
-    codebook = self.vector_quantizer.quantize(np.arange(self.n_embed))
+  def get_vqvae_codebook(self):
+    codebook = self.vector_quantizer.quantize(torch.arange(self.n_embed, device=next(self.parameters()).device))
     codebook = codebook.reshape(self.n_embed, self.embed_dim)
 
     return codebook

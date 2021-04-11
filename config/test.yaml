@@ -5,6 +5,8 @@ dataset:
     sample_rate: 44100
     win_size: 0.5
     hop_len: 0.5
+    tr_b_size: 1
+    tr_len: 
 
 model:
     vqgan:
@@ -31,5 +33,10 @@ model:
             attn_indices: [2]
             disc_steps: 1
             lr: 1e-4
-  
     transformer:
+        vocab_size: 256 # size of vqvae vocab
+        d_model: 256 # dimension of hidden units
+        n_head: 4 # number of attention heads
+        n_layer: 2 # number of encoder layers 
+        max_len: 10000 # max number of elements in sequenceks   
+        lr: 1e-4   

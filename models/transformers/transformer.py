@@ -1,24 +1,25 @@
+import math
+import torch
+import torch.nn as nn
+from models.transformers.transformer_modules import PositionalEncoding
+
 class Transformer(nn.Module):
-  def __init__(self, emb_dim, num_embeddings, nhead, nlayers, codebook, dropout = 0.1):
+  def __init__(self, vocab_size, d_model, n_head, n_layer, max_len, codebook, dropout = 0.1):
     super(Transformer, self).__init__()
     self.model_type = 'Transformer'
-    self.num_embeddings = num_embeddings
-    self.emb_dim = emb_dim
-    
+    self.vocab_size = vocab_size    
+    self.d_model = d_model
+        
     self.src_mask = None
-    self.pos_encoder = PositionalEncoding(emb_dim, dropout)
-    self.embedding = nn.Embedding(num_embeddings, emb_dim)
-    self.embedding.load_state_dict({'weight': codebook})
-    self.embedding.requires_grad=False
+    self.pos_encoder = PositionalEncoding(d_model, dropout, max_len)
+    self.embedding = nn.Embedding(vocab_size, d_model)
+    #self.embedding.load_state_dict({'weight': codebook})
+    #self.embedding.requires_grad=False
 
-    encoder_layer = nn.TransformerEncoderLayer(emb_dim, nhead, dropout=dropout)
-    self.transformer_encoder = nn.TransformerEncoder(encoder_layer, nlayers)
-    self.decoder = nn.Linear(emb_dim, num_embeddings)
+    encoder_layer = nn.TransformerEncoderLayer(d_model, n_head, dropout=dropout)
+    self.transformer_encoder = nn.TransformerEncoder(encoder_layer, n_layer)
+    self.decoder = nn.Linear(d_model, vocab_size)
     
-    #self.upsampler1 = nn.Linear(num_embeddings, emb_dim)
-    #self.upsampler2 = nn.Upsample(scale_factor = int(bottom_len/top_len))
-    #self.downsampler = nn.Linear(emb_dim+emb_dim, emb_dim)
-
     self.init_weights()
     
   def generate_square_subsequent_mask(self, sz):
@@ -36,7 +37,7 @@ class Transformer(nn.Module):
     
     src = self.embedding(input)
 
-    src = src.permute(1,0,2)*math.sqrt(self.emb_dim)
+    src = src.permute(1,0,2)*math.sqrt(self.d_model)
     src = self.pos_encoder(src)
         
     src = self.transformer_encoder(src, mask)

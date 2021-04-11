@@ -4,6 +4,7 @@ import os
 import sys
 import numpy as np
 import torch
+import torch.nn as nn
 import torchaudio
 if platform.system() == 'Windows':
     torchaudio.set_audio_backend('soundfile')
@@ -16,10 +17,15 @@ from models.discriminator import MultiDiscriminator
 from utils.vqvae_trainer import VQVAETrainer
 from models.losses import hinge_loss, vqvae_loss
 
+from models.transformers.transformer import Transformer
+from datasets.transformer_dataset import TransformerDatasetNoCond
+from utils.transformer_trainer import TransformerTrainer
+from utils.utils import encode_dataset, generate
+
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(torch.__version__, device)
 
-os.chdir('VQ_GAN_music')
+#os.chdir('VQ_GAN_music')
 with open(r'./config/test.yaml') as file:
     hps = yaml.full_load(file)
 
@@ -42,29 +48,32 @@ d_num_chs = [d_hps['ch']*mult for mult in d_hps['ch_mult']]
 vqvae = VQVAE(v_hps['embed_dim'], v_hps['n_embed'], 1, 1, v_num_chs, v_hps['dilation_depth'], v_hps['attn_indices']).to(device)
 discriminator = MultiDiscriminator(d_hps['in_ch'], d_num_chs, 3, WINDOW_SIZE, CONT, n_classes=None).to(device)
 
-'''
-# Test forward pass
-fake, codes = vqvae(real)
-print("VQVAE pass done", fake.shape, codes.shape)
-d_real = discriminator(real, None)
-print("Real Disc pass done", [s.shape for s in d_real])
-d_fake = discriminator(real, None)
-print("Fake Disc pass done", [s.shape for s in d_fake])
+#gan_trainer = VQVAETrainer(vqvae, discriminator, dataloader, vqvae_loss, hinge_loss, hps, device)
+#samples = gan_trainer.train(1, 'checkpoint_dir', train_gan=True, log_interval=1)
 
-print(d_real, d_fake)
+tr_seq_len = (WINDOW_SIZE//2)//CONT
+print(tr_seq_len)
+tr_data = encode_dataset(dataloader, vqvae, device)
+tr_dataset = TransformerDatasetNoCond(tr_data, tr_seq_len)
+print(tr_dataset.dataset)
+tr_dataloader = dataloader = torch.utils.data.DataLoader(tr_dataset, batch_size=hps['dataset']['tr_b_size'])
+tr_data = next(iter(tr_dataloader))
+print(tr_data)
 
-# test loss
-# vqvae
-v_loss = vqvae_loss(real, fake, codes)
-# disc
-d_loss = 0
-D_x = 0
-D_G_z1 = 0
-for score_real, score_fake in zip(d_real, d_fake):
-    D_x += score_real.mean().item()
-    D_G_z1 += score_fake.mean().item()
-    #Cálculo do erro no batch de amostras reais
-    d_loss += self.gan_loss(score_real, score_fake, mode='d')
-'''
-gan_trainer = VQVAETrainer(vqvae, discriminator, dataloader, vqvae_loss, hinge_loss, hps, device)
-samples = gan_trainer.train(1, 'checkpoint_dir', train_gan=True, log_interval=1)
+tr_hps = hps['model']['transformer']
+tr_vocab_size = tr_hps['vocab_size']
+tr_d_model = tr_hps['d_model']
+tr_n_head = tr_hps['n_head']
+tr_n_layer = tr_hps['n_layer']
+tr_max_len = tr_hps['max_len']
+codebook = vqvae.get_vqvae_codebook()
+tr_lr = float(tr_hps['lr'])
+
+transformer = Transformer(tr_vocab_size, tr_d_model, tr_n_head, tr_n_layer, tr_max_len, codebook).to(device)
+tr_loss_fn = nn.CrossEntropyLoss()
+
+transformer_trainer = TransformerTrainer(transformer, tr_dataloader, None, tr_loss_fn, device, tr_lr)
+transformer_trainer.train(10, 'checkpoint_dir', log_interval=1)
+
+generated = generate(real, None, vqvae, transformer, WINDOW_SIZE, WINDOW_SIZE, CONT, 1, device)
+print(generated.shape)

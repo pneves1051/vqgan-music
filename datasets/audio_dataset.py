@@ -297,14 +297,15 @@ class AudioDataset2(torch.utils.data.IterableDataset):
     return self.read_dataset(self.file_list[iter_start: iter_end],self.batch_size)
 
 class DummyDataset(torch.torch.utils.data.IterableDataset):
-  def __init__(self, sr, window_size):
+  def __init__(self, sr, window_size, n_iter=1):
     self.sr = sr
     self.window_size = int(2**(np.ceil(np.log2(sr*window_size))))
+    self.n_iter=n_iter
 
-  def produce_random_batch(self, n_iter=1):
-    for _ in range(n_iter):
-      batch = {'inputs': torch.randn((1, 1, self.window_size)), 'conditions': None}
+  def produce_random_batch(self):
+    for _ in range(self.n_iter):
+      batch = {'ids': torch.LongTensor([0]), 'inputs': torch.randn((1, 1, self.window_size)), 'conditions': None}
       yield batch
     
   def __iter__(self):
-    return self.produce_random_batch(1)
+    return self.produce_random_batch()

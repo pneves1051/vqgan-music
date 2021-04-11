@@ -16,11 +16,13 @@ class VQVAETrainer():
     self.spec_hp = hps['model']['vqgan']['vqvae']['loss']['spectral_hp']
     self.disc_steps = hps['model']['vqgan']['disc']['disc_steps']
 
-    # betas=(0.5, 0.999)
+    betas=(0.5, 0.9)
     self.v_optimizer = torch.optim.Adam(self.vqvae.parameters(), 
-                                        lr = float(hps['model']['vqgan']['vqvae']['lr']))
+                                        lr = float(hps['model']['vqgan']['vqvae']['lr']),
+                                        betas=betas)
     self.d_optimizer = torch.optim.Adam(self.discriminator.parameters(),
-                                        lr = float(hps['model']['vqgan']['disc']['lr']))
+                                        lr = float(hps['model']['vqgan']['disc']['lr']),
+                                        betas=betas)
     #self.e_scheduler = torch.optim.lr_scheduler.StepLR(self.e_optimizer, 1.0, gamma=0.95) 
     #self.g_scheduler = torch.optim.lr_scheduler.StepLR(self.g_optimizer, 1.0, gamma=0.95) 
     #self.d_scheduler = torch.optim.lr_scheduler.StepLR(self.d_optimizer, 1.0, gamma=0.95) 
@@ -36,47 +38,40 @@ class VQVAETrainer():
     
     return disc_weight  
   
-  def train_epoch(self):
+  def train_epoch(self, log_interval=20):
     self.vqvae.train()
-    self.discriminator.train()
-       
-    losses = []
-    losses_list = []
+           
+    vqvae_losses = []
     start_time = time.time()
     index=0
     for data in self.dataloader:
-      inputs = data['inputs'].to(self.device)
-      targets = data['targets'].to(self.device)
-      conditions = data['condiditions'].to(self.device)
-
-      outputs, codes = self.vqvae(inputs, annotations)
+      real = data['inputs'].to(self.device)
+      conditions = data['conditions']
+      if conditions is not None:
+        conditions = conditions.to(self.device)
+      
+      fake, codes = self.vqvae(real)
       
       # loss, loss_list = self.loss_fn(outputs, targets, top_codes, bottom_codes)
-      loss_l = self.vqvae_loss(outputs, targets, codes)
-      loss = sum(loss_l)
+      l2_loss, lat_loss, spec_loss = self.vqvae_loss(real, fake, codes, spec_hp=self.spec_hp)
+      total_loss = l2_loss + lat_loss + spec_loss
       self.v_optimizer.zero_grad()
-      loss.backward()
+      total_loss.backward()
       #torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)     
       self.v_optimizer.step()
       
-      losses.append(sum(loss).item())
-      losses_list.append(torch.Tensor(loss).tolist())
-
       index += 1        
-      log_interval = 1
       if index % log_interval == 0 and index > 0:
         elapsed = time.time() - start_time
-        current_loss = np.mean(losses)
         print('| {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
-              'loss {:5.5f} | loss_list: {}'.format(
+              'losses {} |'.format(
               index, 2, #self.g_scheduler.get_last_lr()[0],
               elapsed*1000/log_interval,
-              current_loss, np.mean(losses_list, axis=0)))
+              np.mean(vqvae_losses, axis=0)))
         start_time = time.time()
 
-    train_loss = np.mean(losses)
-    train_loss_list = np.mean(losses_list, axis=0)
-    return train_loss, train_loss_list
+      vqvae_losses.append([l2_loss.item(), lat_loss.item(), spec_loss.item()])
+    return vqvae_losses
     
   def train_epoch_gan(self, log_interval=20):
     self.vqvae.train()
@@ -109,7 +104,7 @@ class VQVAETrainer():
       
       for _ in range(self.disc_steps):
 
-        self.discriminator.zero_grad()
+        self.d_optimizer.zero_grad()
         #Forward of the real batch through D
         d_real = self.discriminator(real, conditions)
         #torch.nn.utils.clip_grad_norm_(self.dis.parameters(), 0.5)
@@ -140,13 +135,13 @@ class VQVAETrainer():
       for p in self.discriminator.parameters():
         p.requires_grad = False      
       
-      self.vqvae.zero_grad()
+      self.v_optimizer.zero_grad()
      
       fake, codes = self.vqvae(real)
 
       d_fake = self.discriminator(fake, conditions)
        
-      l2_loss, lat_loss, spec_loss = self.vqvae_loss(real, fake, codes)
+      l2_loss, lat_loss, spec_loss = self.vqvae_loss(real, fake, codes, spec_hp=self.spec_hp)
       rec_loss = l2_loss + spec_loss
 
       g_loss = 0
@@ -179,7 +174,14 @@ class VQVAETrainer():
       
     return np.mean(d_losses, 0), np.mean(g_losses, 0), np.mean(vqvae_losses, 0)
 
-  def train(self, EPOCHS, checkpoint_dir, train_gan=False, log_interval=20):
+  def train(self, epochs, checkpoint_dir, train_gan=False, load=False, log_interval=20):
+    if load:
+      checkpoint = torch.load(checkpoint_dir + 'checkpoint.pth')
+      self.vqvae.load_state_dict(checkpoint['vqvae'])
+      self.discriminator.load_state_dict(checkpoint['discriminator'])
+      self.v_optimizer.load_state_dict(checkpoint['v_optimizer'])
+      self.d_optimizer.load_state_dict(checkpoint['d_optimizer'])
+    
     history = defaultdict(list)
     best_d_loss = 0.
     best_g_loss = 0.
@@ -187,41 +189,42 @@ class VQVAETrainer():
     # list to store generator outputs
     samples=[]
 
-    for epoch in range(EPOCHS):
+    for epoch in range(epochs):
       epoch_start_time = time.time()
-      print(f'Epoch {epoch + 1}/{EPOCHS}')
+      print(f'Epoch {epoch + 1}/{epochs}')
 
       print('-' * 10)
       if train_gan:
-        d_loss, g_loss, vae_loss_list  = self.train_epoch_gan(log_interval=log_interval)
+        d_loss, g_loss, vqvae_loss  = self.train_epoch_gan(log_interval=log_interval)
         
         print('| End of epoch {:3d}  | time: {:5.2f}s | loss_D: {:5.2f} |'
               'loss_G: {} | loss_VAE: {} '.format(
               epoch+1, (time.time()-epoch_start_time), d_loss, g_loss,
-              vae_loss_list))
+              vqvae_loss))
       else:
-        train_loss, train_loss_list = self.train_epoch()
+        vqvae_loss = self.train_epoch()
         history['train_loss'].append(train_loss)
         history['train_loss_list'].append(train_loss_list)
         #valid_loss, valid_loss_list = self.evaluate(self.valid_dataloader)
 
-        print('| End of epoch {:3d}  | time: {:5.2f}s | train loss {:5.5f} | train_loss_list: {}'
+        print('| End of epoch {:3d}  | time: {:5.2f}s | vqvae_loss {:5.5f} |'
               ' valid loss {} | valid_loss_list: {} '.format(epoch+1, (time.time()-epoch_start_time),
-                                            train_loss, train_loss_list, 'valid_loss', 'valid_loss_list'))
+                                            vqvae_loss, 'valid_loss', 'valid_loss_list'))
 
-      torch.save(self.vqvae.state_dict(), checkpoint_dir + 'test_vqvae_state.bin')
-      torch.save(self.discriminator.state_dict(), checkpoint_dir + 'test_discriminator_state.bin')
-      
-      #self.e_scheduler.step()
-      #self.d_scheduler.step()
-      #self.g_scheduler.step()
+      checkpoint = { 
+            'vqvae': self.vqvae.state_dict(),
+            'discriminator': self.discriminator.state_dict(),
+            'v_optimizer': self.v_optimizer.state_dict(),
+            'd_optimizer': self.d_optimizer.state_dict()}
+        
+      torch.save(checkpoint, checkpoint_dir + 'checkpoint.pth')
 
-      #fake = self.evaluate(self.top_fixed_noise, self.bottom_fixed_noise)
-      #samples.append(fake)
-                    
+      fake = self.evaluate()
+      samples.append(fake)
+                   
     return samples
 
-  def evaluate(self, noise):
+  def evaluate(self):
     self.vqvae.eval()
     data = next(iter(self.dataloader))
     real = data['inputs'].to(self.device)
@@ -229,9 +232,9 @@ class VQVAETrainer():
     if conditions is not None:
       conditions = conditions.to(self.device)
     with torch.no_grad():
-      fake = self.vqvae(real).detach().cpu()
+      fake= self.vqvae(real)[0].detach().cpu()
       return fake
     
   def save_model(self, checkpoint_dir):
-      torch.save(self.vqvae.state_dict(), checkpoint_dir + 'test_vqvae_state.bin')    
-      torch.save(self.discriminator.state_dict(), checkpoint_dir + 'test_discriminator_state.bin')
+      torch.save(self.vqvae.state_dict(), checkpoint_dir + 'vqvae_state.bin')    
+      torch.save(self.discriminator.state_dict(), checkpoint_dir + 'discriminator_state.bin')

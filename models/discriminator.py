@@ -13,16 +13,16 @@ class ModuleDiscriminator(nn.Module):
     stride=4
     padding = (kernel_size-stride)//2
     
-    self.pre = nn.Sequential(nn.Conv1d(in_ch, num_chs[0], 9, 
-                                      stride=1, padding=4),
+    self.pre = nn.Sequential(nn.utils.spectral_norm(nn.Conv1d(in_ch, num_chs[0], 9, 
+                                      stride=1, padding=4)),
                               nn.LeakyReLU(0.2))
     
     module_list = []
     for i in range(1, len(num_chs)):
-      module_list.append(nn.Sequential(nn.Conv1d(num_chs[i-1], num_chs[i], kernel_size, padding=padding, stride=stride),
+      module_list.append(nn.Sequential(nn.utils.spectral_norm(nn.Conv1d(num_chs[i-1], num_chs[i], kernel_size, padding=padding, stride=stride)),
                         nn.LeakyReLU(0.2)))
     
-    module_list.append(nn.Conv1d(num_chs[-1], 1, kernel_size=3, stride=1, padding=1))
+    module_list.append(nn.utils.spectral_norm(nn.Conv1d(num_chs[-1], 1, kernel_size=3, stride=1, padding=1)))
     
     self.discriminator = nn.ModuleList(module_list)
 
