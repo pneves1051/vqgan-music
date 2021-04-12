@@ -48,8 +48,8 @@ d_num_chs = [d_hps['ch']*mult for mult in d_hps['ch_mult']]
 vqvae = VQVAE(v_hps['embed_dim'], v_hps['n_embed'], 1, 1, v_num_chs, v_hps['dilation_depth'], v_hps['attn_indices']).to(device)
 discriminator = MultiDiscriminator(d_hps['in_ch'], d_num_chs, 3, WINDOW_SIZE, CONT, n_classes=None).to(device)
 
-#gan_trainer = VQVAETrainer(vqvae, discriminator, dataloader, vqvae_loss, hinge_loss, hps, device)
-#samples = gan_trainer.train(1, 'checkpoint_dir', train_gan=True, log_interval=1)
+gan_trainer = VQVAETrainer(vqvae, discriminator, dataloader, vqvae_loss, hinge_loss, hps, device)
+samples = gan_trainer.train(1, 'checkpoint_dir', train_gan=True, log_interval=1)
 
 tr_seq_len = (WINDOW_SIZE//2)//CONT
 print(tr_seq_len)

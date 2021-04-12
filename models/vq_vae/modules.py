@@ -153,6 +153,10 @@ class VQVAEEncoder(nn.Module):
     self.res_layers =  nn.ModuleList(res_list)
 
     # post processing layers
+    self.last_res = (nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
+                                    nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                                    ResBlock(num_chs[-1], dilations, depth, leaky)))
+    
     self.last_conv = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
                               nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                               nn.Conv1d(num_chs[-1], out_ch, 3, padding=1))
@@ -173,7 +177,8 @@ class VQVAEEncoder(nn.Module):
       if i + 1 in self.attn_indices:
         x = self.attn_modules[j](x)
         j += 1
-       
+
+    out = self.last_res(x)   
     out = self.last_conv(x)
     return out
 
@@ -189,6 +194,10 @@ class VQVAEDecoder(nn.Module):
     padding = (kernel_size + output_padding-stride)//2
 
     self.first_conv = nn.Conv1d(in_ch, num_chs[0], 3, padding=1)
+
+    self.first_res = (nn.Sequential(nn.BatchNorm1d(num_chs[0]),
+                                    nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                                    ResBlock(num_chs[0], dilations, depth, leaky)))
 
     res_list = []
     for i in range(1, len(num_chs)):
@@ -211,6 +220,7 @@ class VQVAEDecoder(nn.Module):
   
   def forward(self, x):
     x = self.first_conv(x)
+    x = self.first_res(x)    
     j = 0
     for i, module in enumerate(self.res_layers):
       x = module[0](x)

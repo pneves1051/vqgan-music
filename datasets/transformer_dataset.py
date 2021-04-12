@@ -21,10 +21,8 @@ class TransformerDatasetNoCond(torch.utils.data.Dataset):
           # we will use seq[:-1] as input and seq[1:] as target
           self.dataset.append(data[j: j+seq_len+1])
        
-      test = 10
-      
-      self.ids = torch.Tensor(self.ids)[:test]
-      self.dataset = torch.Tensor(self.dataset)[:test]
+      self.ids = torch.Tensor(self.ids)
+      self.dataset = torch.Tensor(self.dataset)
       
     def __len__(self):
       return len(self.dataset)
