@@ -1,22 +1,24 @@
 import torch
+import torch.nn as nn
 import torch.nn.functional as F
 from collections import defaultdict
 
 # initialization
 def weights_init(m):
     if isinstance(m, nn.Conv1d) or isinstance(m, nn.ConvTranspose1d) or isinstance(m, nn.Linear) or isinstance(m, nn.Embedding):
-        torch.nn.init.normal_(m.weight, 0.0, 0.02)
+        nn.init.normal_(m.weight, 0.0, 0.02)
     if isinstance(m, nn.BatchNorm1d):
-        torch.nn.init.normal_(m.weight, 0.0, 0.02)
-        torch.nn.init.constant_(m.bias, 0)
-        
+        nn.init.normal_(m.weight, 0.0, 0.02)
+        nn.init.constant_(m.bias, 0)
 
 def encode_dataset(dataloader, vqvae, device):
   encoded_dataset = {'ids': [], 'inputs': [], 'conditions':[]}
   
   vqvae.eval()
   with torch.no_grad():
-    for data in dataloader:
+    for j, data in enumerate(dataloader):
+      if j % 500 == 0 : print(len(encoded_dataset['inputs']))
+      
       ids = data['ids'].tolist()
       real = data['inputs'].to(device)
       conditions = data['conditions']
@@ -26,7 +28,9 @@ def encode_dataset(dataloader, vqvae, device):
       _, _, _, indices = vqvae.encode(real)
       
       for i, id in enumerate(ids):
+
         if id in encoded_dataset['ids']:
+          
           pos_id = encoded_dataset['ids'].index(id)
           encoded_dataset['inputs'][pos_id].extend(indices[i].cpu().tolist())
           '''

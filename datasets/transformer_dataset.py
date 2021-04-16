@@ -13,12 +13,14 @@ class TransformerDatasetNoCond(torch.utils.data.Dataset):
       
       self.ids = []
       self.dataset = []
-     
+        
+          
       for i, data in enumerate(dataset['inputs']):
-        for j in range(0, len(data)-seq_len, seq_len):
+        for j in range(0, len(data)-seq_len+1, seq_len-1):
           self.ids.append(dataset['ids'][i])
                    
           # we will use seq[:-1] as input and seq[1:] as target
+
           self.dataset.append(data[j: j+seq_len+1])
        
       self.ids = torch.Tensor(self.ids)

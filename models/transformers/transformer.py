@@ -4,7 +4,7 @@ import torch.nn as nn
 from models.transformers.transformer_modules import PositionalEncoding
 
 class Transformer(nn.Module):
-  def __init__(self, vocab_size, d_model, n_head, n_layer, max_len, codebook, dropout = 0.1):
+  def __init__(self, vocab_size, d_model, n_head, n_hid, n_layer, max_len, dropout = 0.1):
     super(Transformer, self).__init__()
     self.model_type = 'Transformer'
     self.vocab_size = vocab_size    
@@ -16,7 +16,7 @@ class Transformer(nn.Module):
     #self.embedding.load_state_dict({'weight': codebook})
     #self.embedding.requires_grad=False
 
-    encoder_layer = nn.TransformerEncoderLayer(d_model, n_head, dropout=dropout)
+    encoder_layer = nn.TransformerEncoderLayer(d_model, n_head, n_hid, dropout=dropout)
     self.transformer_encoder = nn.TransformerEncoder(encoder_layer, n_layer)
     self.decoder = nn.Linear(d_model, vocab_size)
     
@@ -33,14 +33,11 @@ class Transformer(nn.Module):
     self.decoder.bias.data.zero_()
     self.decoder.weight.data.uniform_(-initrange, initrange)
     
-  def forward(self, input, mask):
-    
-    src = self.embedding(input)
-
-    src = src.permute(1,0,2)*math.sqrt(self.d_model)
+  def forward(self, input, mask):    
+    src = self.embedding(input)*math.sqrt(self.d_model)
     src = self.pos_encoder(src)
         
     src = self.transformer_encoder(src, mask)
     output = self.decoder(src)
 
-    return output.permute(1, 2, 0)
+    return output

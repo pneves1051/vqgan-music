@@ -1,4 +1,5 @@
 import torch
+import torch.nn.functional as F
 import time
 import numpy as np
 from collections import defaultdict
@@ -14,6 +15,7 @@ class VQVAETrainer():
     self.device=device
     
     self.spec_hp = hps['model']['vqgan']['vqvae']['loss']['spectral_hp']
+    self.feat_hp = hps['model']['vqgan']['vqvae']['loss']['feat_hp']
     self.disc_steps = hps['model']['vqgan']['disc']['disc_steps']
 
     betas=(0.5, 0.9)
@@ -81,6 +83,7 @@ class VQVAETrainer():
 
     d_losses = []
     g_losses = []
+    feat_losses = []
     vqvae_losses = []
     g_codes_losses = []
 
@@ -117,7 +120,7 @@ class VQVAETrainer():
         d_loss = 0
         D_x = 0
         D_G_z1 = 0
-        for score_real, score_fake in zip(d_real, d_fake):
+        for (_, score_real), (_, score_fake) in zip(d_real, d_fake):
           D_x += score_real.mean().item()
           D_G_z1 += score_fake.mean().item()
           #Cálculo do erro no batch de amostras reais
@@ -145,15 +148,19 @@ class VQVAETrainer():
       rec_loss = l2_loss + spec_loss
 
       g_loss = 0
+      feat_loss = 0
       D_G_z2 = 0
-      for score_fake in d_fake:
+      for (feats_real, _), (feats_fake, score_fake) in zip(d_real, d_fake):
         D_G_z2 += score_fake.mean().item()
+        for feat_real, feat_fake in zip(feats_real, feats_fake):
+          feat_loss += F.l1_loss(feat_fake, feat_real.detach())
         # Calculate G loss
         g_loss += self.gan_loss(score_fake=score_fake, mode='g')
       
-      loss_hp = self.get_loss_hp(rec_loss, g_loss, self.vqvae.get_last_layer())
+      g_feat_loss = g_loss + self.feat_hp*feat_loss
+      loss_hp = self.get_loss_hp(rec_loss, g_feat_loss, self.vqvae.get_last_layer())
       #AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA  
-      total_loss = rec_loss + lat_loss + loss_hp*g_loss    
+      total_loss = rec_loss + lat_loss + loss_hp*g_feat_loss    
       total_loss.backward()
       # Update G
       self.v_optimizer.step()
@@ -162,17 +169,18 @@ class VQVAETrainer():
       if index % log_interval == 0 and index > 0:
         elapsed = time.time() - start_time
         print('{:3d} batches | time: {:5.2f}s | Loss_D: {:5.4f} | Loss_G: {} | VQ_VAE_loss: {} | '
-              ' | D(x): {:5.4f} | D(G(z)): {:5.4f} / {:5.4f} | loss_hp: {}' 
+              ' feat_loss: {} | D(x): {:5.4f} | D(G(z)): {:5.4f} / {:5.4f} | loss_hp: {}' 
               .format(index, elapsed, np.mean(d_losses, 0), np.mean(g_losses, 0),
-                      np.mean(vqvae_losses, 0), D_x, D_G_z1, D_G_z2, loss_hp.item()))              
+                      np.mean(vqvae_losses, 0), np.mean(feat_losses, 0), D_x, D_G_z1, D_G_z2, loss_hp.item()))              
         start_time = time.time()
 
       # Save losses to plot later
       d_losses.append(d_loss.item())
       g_losses.append(g_loss.item())
+      feat_losses.append(feat_loss.item())
       vqvae_losses.append([l2_loss.item(), lat_loss.item(), spec_loss.item()])
       
-    return np.mean(d_losses, 0), np.mean(g_losses, 0), np.mean(vqvae_losses, 0)
+    return np.mean(d_losses, 0), np.mean(g_losses, 0), np.mean(feat_losses, 0), np.mean(vqvae_losses, 0)
 
   def train(self, epochs, checkpoint_dir, train_gan=False, load=False, log_interval=20):
     if load:
@@ -195,12 +203,12 @@ class VQVAETrainer():
 
       print('-' * 10)
       if train_gan:
-        d_loss, g_loss, vqvae_loss  = self.train_epoch_gan(log_interval=log_interval)
+        d_loss, g_loss, feat_loss, vqvae_loss  = self.train_epoch_gan(log_interval=log_interval)
         
         print('| End of epoch {:3d}  | time: {:5.2f}s | loss_D: {:5.2f} |'
-              'loss_G: {} | loss_VAE: {} '.format(
+              'loss_G: {} | feat_loss: {} |loss_VAE: {} '.format(
               epoch+1, (time.time()-epoch_start_time), d_loss, g_loss,
-              vqvae_loss))
+              feat_loss, vqvae_loss))
       else:
         vqvae_loss = self.train_epoch()
         history['train_loss'].append(train_loss)

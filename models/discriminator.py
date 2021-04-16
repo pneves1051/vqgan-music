@@ -13,16 +13,16 @@ class ModuleDiscriminator(nn.Module):
     stride=4
     padding = (kernel_size-stride)//2
     
-    self.pre = nn.Sequential(nn.utils.spectral_norm(nn.Conv1d(in_ch, num_chs[0], 9, 
+    self.pre = nn.Sequential(nn.utils.weight_norm(nn.Conv1d(in_ch, num_chs[0], 9, 
                                       stride=1, padding=4)),
                               nn.LeakyReLU(0.2))
     
     module_list = []
     for i in range(1, len(num_chs)):
-      module_list.append(nn.Sequential(nn.utils.spectral_norm(nn.Conv1d(num_chs[i-1], num_chs[i], kernel_size, padding=padding, stride=stride)),
+      module_list.append(nn.Sequential(nn.utils.weight_norm(nn.Conv1d(num_chs[i-1], num_chs[i], kernel_size, padding=padding, stride=stride)),
                         nn.LeakyReLU(0.2)))
     
-    module_list.append(nn.utils.spectral_norm(nn.Conv1d(num_chs[-1], 1, kernel_size=3, stride=1, padding=1)))
+    module_list.append(nn.utils.weight_norm(nn.Conv1d(num_chs[-1], 1, kernel_size=3, stride=1, padding=1)))
     
     self.discriminator = nn.ModuleList(module_list)
 
@@ -42,7 +42,7 @@ class ModuleDiscriminator(nn.Module):
     #output = self.post(h.flatten(1))
     #results.append(output)    
 
-    return results[-1]
+    return results[:-1], results[-1]
 
 class MultiDiscriminator(nn.Module):
   def __init__(self, in_ch, num_chs, num_d, window_size, cont, n_classes=None):
@@ -67,7 +67,7 @@ class MultiDiscriminator(nn.Module):
  
     self.pooling = nn.ModuleList((
         [nn.Identity()]+
-        [nn.AvgPool1d(4, stride=2, padding=1, count_include_pad=False) for _ in range(1, num_d)]
+        [nn.AvgPool1d(8, stride=4, padding=2, count_include_pad=False) for _ in range(1, num_d)]
     ))
        
  
@@ -84,5 +84,7 @@ class MultiDiscriminator(nn.Module):
     results = []
     for pool, disc in zip(self.pooling, self.discriminators):
       h = pool(h)
+      print(h.shape)
       results.append(disc(h))
+      
     return results  # (feat, score), (feat, score), ...

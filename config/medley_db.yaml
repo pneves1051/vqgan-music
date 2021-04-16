@@ -19,7 +19,8 @@ model:
             dilation_factor: 3
             dilation_depth: 3
             lr: 1e-4            
-            loss: 
+            loss:
+                feat_hp: 10 
                 spectral: true
                 spectral_hp: 0
                 spectral_n_fft: [2048, 1024, 512]

@@ -5,6 +5,37 @@ import numpy as np
 import torch
 import torch.nn.functional as F
 
+class NoamOpt:
+  "Optim wrapper that implements rate."
+  def __init__(self, model_size, factor, warmup, optimizer):
+      self.optimizer = optimizer
+      self._step = 0
+      self.warmup = warmup
+      self.factor = factor
+      self.model_size = model_size
+      self._rate = 0
+      
+  def step(self):
+      "Update parameters and rate"
+      self._step += 1
+      rate = self.rate()
+      for p in self.optimizer.param_groups:
+          p['lr'] = rate
+      self._rate = rate
+      self.optimizer.step()
+      
+  def rate(self, step = None):
+      "Implement `lrate` above"
+      if step is None:
+          step = self._step
+      return self.factor * \
+          (self.model_size ** (-0.5) *
+          min(step ** (-0.5), step * self.warmup ** (-1.5)))
+      
+  def get_std_opt(model):
+      return NoamOpt(model.src_embed[0].d_model, 2, 4000,torch.optim.Adam(model.parameters(), lr=0, betas=(0.9, 0.98), eps=1e-9))
+
+
 class TransformerTrainer():
   def __init__(self, model, dataloader, valid_dataloader, loss_fn, device, lr):
     self.model = model
@@ -12,9 +43,16 @@ class TransformerTrainer():
     self.valid_dataloader = valid_dataloader
     self.loss_fn = loss_fn
     self.device=device
-    self.optimizer = torch.optim.Adam(self.model.parameters(), lr = lr)
-    self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 1.0, gamma=0.95)
+    self.optimizer_pre = torch.optim.AdamW(self.model.parameters(), lr = lr, betas=(0.9, 0.98))
+    self.optimizer = NoamOpt(tr_d_model, 1, 8000, self.optimizer_pre)
+    #self.scheduler = torch.optim.lr_scheduler.StepLR(self.optimizer, 1.0, gamma=0.95)
+    #self.scheduler = NoamLR(self.optimizer, 8000)
     
+  def generate_square_subsequent_mask(self, sz):
+    mask = (torch.triu(torch.ones(sz,sz)) == 1).transpose(0,1)
+    #mask = mask.float().masked_fill(mask == 0, float(-1)).masked_fill(mask==1, float(0.0))
+    return mask  
+  
   def train_epoch(self, log_interval=20):
     self.model.train()
        
@@ -23,16 +61,16 @@ class TransformerTrainer():
     start_time = time.time()
   
     for index, data in enumerate(self.dataloader):
-      inputs = data['inputs'].to(self.device)
+      inputs = data['inputs'].to(self.device).transpose(0,1)
       targets = data['targets'].to(self.device)
-      self.optimizer.zero_grad()
+      self.model.zero_grad()
 
-      mask = self.model.generate_square_subsequent_mask(inputs.size(1)).to(self.device)
-      outputs = self.model(inputs, mask)
+      mask = self.model.generate_square_subsequent_mask(inputs.size(0)).to(self.device)
+      outputs = self.model(inputs, mask).transpose(0,1)
       
       loss = self.loss_fn(outputs, targets)
       loss.backward()
-      #torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
+      torch.nn.utils.clip_grad_norm_(self.model.parameters(), 0.5)
       self.optimizer.step()
 
       preds = torch.argmax(F.softmax(outputs, dim=1), dim = 1)
@@ -45,7 +83,8 @@ class TransformerTrainer():
         current_loss = np.mean(losses)
         print('| {:5d} of {:5d} batches | lr {:02.7f} | ms/batch {:5.2f} | '
               'loss {:5.2f} | acc {:8.4f}'.format(
-              index, len(self.dataloader), self.scheduler.get_last_lr()[0], elapsed*1000/log_interval,
+              index, len(self.dataloader), self.optimizer._rate,#self.scheduler.get_last_lr()[0]',
+              elapsed*1000/log_interval,
               current_loss,  correct_predictions /((index+1)*self.dataloader.batch_size*targets.shape[1])))
         start_time = time.time()
 
@@ -85,7 +124,7 @@ class TransformerTrainer():
         torch.save(self.model.state_dict(), checkpoint_dir + 'best_transformer_state.bin')
         best_accuracy = train_acc
 
-      self.scheduler.step()
+      #self.scheduler.step()
     
   def evaluate(self, eval_dataloader):
     self.model.eval()
@@ -112,3 +151,4 @@ class TransformerTrainer():
 
   def save_model(self, checkpoint_dir):
     torch.save(self.model.state_dict(), checkpoint_dir + 'best_transformer_state.bin')
+
