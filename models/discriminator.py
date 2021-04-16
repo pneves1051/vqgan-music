@@ -84,7 +84,6 @@ class MultiDiscriminator(nn.Module):
     results = []
     for pool, disc in zip(self.pooling, self.discriminators):
       h = pool(h)
-      print(h.shape)
       results.append(disc(h))
       
     return results  # (feat, score), (feat, score), ...
