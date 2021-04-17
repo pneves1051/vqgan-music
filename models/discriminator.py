@@ -67,7 +67,7 @@ class MultiDiscriminator(nn.Module):
  
     self.pooling = nn.ModuleList((
         [nn.Identity()]+
-        [nn.AvgPool1d(8, stride=4, padding=2, count_include_pad=False) for _ in range(1, num_d)]
+        [nn.AvgPool1d(4, stride=2, padding=1, count_include_pad=False) for _ in range(1, num_d)]
     ))
        
  

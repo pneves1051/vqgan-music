@@ -99,11 +99,10 @@ class ResBlock(nn.Module):
     return out
 
 class SelfAttn(nn.Module):
-  def __init__(self, ch, activation):
+  def __init__(self, ch):
     super(SelfAttn, self).__init__()
     self.ch = ch
-    self.activation = activation
-
+    
     # Key
     self.theta = nn.Conv1d(self.ch, self.ch//8, 1, bias = False)
     self.phi = nn.Conv1d(self.ch, self.ch//8, 1, bias = False)
@@ -153,9 +152,14 @@ class VQVAEEncoder(nn.Module):
     self.res_layers =  nn.ModuleList(res_list)
 
     # post processing layers
-    self.last_res = (nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
-                                    nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                    ResBlock(num_chs[-1], dilations, depth, leaky)))
+    self.last_res = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
+                                  nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                                  ResBlock(num_chs[-1], dilations, depth, leaky),
+                                  SelfAttn(num_chs[-1]),
+                                  nn.BatchNorm1d(num_chs[-1]),
+                                  nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                                  ResBlock(num_chs[-1], dilations, depth, leaky))
+                                    
     
     self.last_conv = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
                               nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
@@ -195,9 +199,13 @@ class VQVAEDecoder(nn.Module):
 
     self.first_conv = nn.Conv1d(in_ch, num_chs[0], 3, padding=1)
 
-    self.first_res = (nn.Sequential(nn.BatchNorm1d(num_chs[0]),
-                                    nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                    ResBlock(num_chs[0], dilations, depth, leaky)))
+    self.first_res = nn.Sequential(nn.BatchNorm1d(num_chs[0]),
+                                  nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                                  ResBlock(num_chs[0], dilations, depth, leaky),
+                                  SelfAttn(num_chs[0]),
+                                  nn.BatchNorm1d(num_chs[0]),
+                                  nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                                  ResBlock(num_chs[0], dilations, depth, leaky))
 
     res_list = []
     for i in range(1, len(num_chs)):

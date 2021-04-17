@@ -11,18 +11,15 @@ class VQVAE(nn.Module):
 
     self.in_ch = in_ch
     self.out_ch=out_ch
-  
-    enc_attn_indices = attn_indices
-    dec_attn_indices = [(len(num_chs)-1)-i for i in attn_indices]
-   
-    self.encoder = VQVAEEncoder(in_ch, num_chs[-1], num_chs, depth, enc_attn_indices)
-    # conv that changes filter number to vq dimension
-    self.enc_conv = nn.Conv1d(num_chs[-1], embed_dim, 3, padding=1)
 
+    enc_attn_indices = []#attn_indices
+    dec_attn_indices = []#[(len(num_chs)-1)-i for i in attn_indices]
+
+    self.encoder = VQVAEEncoder(in_ch, embed_dim, num_chs, depth, enc_attn_indices)
+  
     self.vector_quantizer = VectorQuantizer(embed_dim, n_embed)
     
-    self.dec_conv = nn.Conv1d(embed_dim, num_chs[-1], 3, padding=1)
-    self.decoder = VQVAEDecoder(num_chs[-1], out_ch, num_chs[::-1], depth, dec_attn_indices)
+    self.decoder = VQVAEDecoder(embed_dim, out_ch, num_chs[::-1], depth, dec_attn_indices)
 
     self.tanh = nn.Tanh()
     
@@ -31,16 +28,14 @@ class VQVAE(nn.Module):
     #inputs_one_hot = F.one_hot(inputs, self.in_ch).permute(0, 2, 1).float()
 
     encoding = self.encoder(inputs)
-    
-    encoding = self.enc_conv(encoding)
+     
     quant, codes, indices = self.vector_quantizer(encoding.permute(0, 2, 1))
     quant = quant.permute(0, 2, 1)
     
     return encoding, quant, codes, indices
 
   def decode(self, quant):
-    reconstructed = self.dec_conv(quant)
-    reconstructed = self.decoder(reconstructed)
+    reconstructed = self.decoder(quant)
     reconstructed = self.tanh(reconstructed)
 
     return reconstructed
