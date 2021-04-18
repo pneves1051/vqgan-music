@@ -2,14 +2,15 @@ import random
 import os
 import pandas as pd
 import librosa
-import torchaudio
-import torch
 import glob
 import math
 import numpy as np
+import torchaudio
+import torch
+import torch.nn.functional as F
 
 class AudioDatasetNoCond(torch.utils.data.IterableDataset):
-  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, use_torch=True, extension='.wav'):
+  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, use_torch=True, extension='.wav', one_hot=False):
     """
     Args:
       dataset_dir (string): dataset directory
@@ -28,6 +29,7 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
     self.batch_size = batch_size
     self.use_torch = use_torch
     self.extension = extension
+    self.one_hot = one_hot
 
     self.start = 0
     self.end = len(self.file_list)
@@ -58,11 +60,15 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
         # normalization
         signal = signal - signal.mean()
         signal = signal/signal.abs().max()
-        #signal = 2*((torchaudio.transforms.MuLawEncoding(256)(signal) + 1)/256.) -1.
+        
         assert not torch.any(signal.abs() > 1.)
         signal = signal.mean(0, keepdim=True)
+        if self.one_hot:
+          signal = torchaudio.transforms.MuLawEncoding(256)(signal)
+          signal = F.one_hot(signal)[0].transpose(-1,-2)
+          print(signal.shape)
+
         for j in range(0, signal.shape[1] - self.window_size + 1, self.hop_len):
-          
           current_signal = signal[:, j: j+self.window_size]
           try:
             ids.append(torch.Tensor([int(id)]))
@@ -141,11 +147,11 @@ class AudioDataset(torch.utils.data.IterableDataset):
       music_id = os.path.basename(str(file)).replace('.mp3', '')
       if music_id != '' and np.any(float(music_id) in self.conditions[:, 0]):
         
-        # carrega arquivo de áudio
+        # loads audio file
         signal, orig_sr = torchaudio.load(file)
         if self.sr != orig_sr:
           signal = torchaudio.transforms.Resample(orig_sr, self.sr)(signal)
-        # normalização entre [-1, 1]
+        # normalization between [-1, 1]
         signal = signal - signal.mean()
         signal = signal/signal.abs().max()
         #signal = 2*((torchaudio.transforms.MuLawEncoding(256)(signal) + 1)/256.) -1.
@@ -297,14 +303,22 @@ class AudioDataset2(torch.utils.data.IterableDataset):
     return self.read_dataset(self.file_list[iter_start: iter_end],self.batch_size)
 
 class DummyDataset(torch.torch.utils.data.IterableDataset):
-  def __init__(self, sr, window_size, n_iter=1):
+  def __init__(self, sr, window_size, n_iter=1, one_hot=False):
     self.sr = sr
     self.window_size = int(2**(np.ceil(np.log2(sr*window_size))))
     self.n_iter=n_iter
+    self.one_hot = one_hot
 
   def produce_random_batch(self):
     for _ in range(self.n_iter):
-      batch = {'ids': torch.LongTensor([0]), 'inputs': torch.randn((1, 1, self.window_size)), 'conditions': None}
+      signal = torch.randn((1, 1, self.window_size))
+      signal = signal - signal.mean()
+      signal = signal/signal.abs().max()
+      if self.one_hot:
+          signal = torchaudio.transforms.MuLawEncoding(256)(signal)
+          signal = F.one_hot(signal)[0].transpose(-1, -2)
+          print(signal.shape)
+      batch = {'ids': torch.LongTensor([0]), 'inputs': signal, 'conditions': None}
       yield batch
     
   def __iter__(self):

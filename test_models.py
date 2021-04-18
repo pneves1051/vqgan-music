@@ -35,7 +35,7 @@ HOP_LEN = int(2**(np.ceil(np.log2(hps['dataset']['hop_len']*SAMPLE_RATE))))
 CONT = 4**(len(hps['model']['vqgan']['vqvae']['ch_mult'])-1)
 
 # Dataset creation
-dataset = DummyDataset(SAMPLE_RATE, hps['dataset']['win_size'])
+dataset = DummyDataset(SAMPLE_RATE, hps['dataset']['win_size'], one_hot=False)
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=None)
 real = next(iter(dataloader))['inputs'].to(device)
 
@@ -44,9 +44,10 @@ d_hps = hps['model']['vqgan']['disc']
 v_num_chs = [v_hps['ch']*mult for mult in v_hps['ch_mult']]
 d_num_chs = [d_hps['ch']*mult for mult in d_hps['ch_mult']]
 
+
 # model creation
-vqvae = VQVAE(v_hps['embed_dim'], v_hps['n_embed'], 1, 1, v_num_chs, v_hps['dilation_depth'], v_hps['attn_indices']).to(device)
-discriminator = MultiDiscriminator(d_hps['in_ch'], d_num_chs, 3, WINDOW_SIZE, CONT, n_classes=None).to(device)
+vqvae = VQVAE(v_hps['embed_dim'], v_hps['n_embed'], 1, 1, v_num_chs, v_hps['strides'], v_hps['dilation_depth'], v_hps['attn_indices']).to(device)
+discriminator = MultiDiscriminator(d_hps['in_ch'], d_num_chs, d_hps['stride'], 3, WINDOW_SIZE, CONT, n_classes=None).to(device)
 
 gan_trainer = VQVAETrainer(vqvae, discriminator, dataloader, vqvae_loss, hinge_loss, hps, device)
 samples = gan_trainer.train(1, 'checkpoint_dir', train_gan=True, log_interval=1)

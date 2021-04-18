@@ -89,6 +89,22 @@ class ResLayer(nn.Module):
     out = x + res_x
     return out
 
+class WNResLayer(nn.Module):
+  def __init__(self, chs, dilation, leaky=False):
+    super(ResLayer, self).__init__()
+    padding = dilation
+    self.conv = nn.Sequential(
+                  nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                  nn.utils.weight_norm(nn.Conv1d(chs, chs, 3, dilation=dilation, padding=padding)),
+                  nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
+                  nn.utils.weight_norm(nn.Conv1d(chs, chs, 1, padding=0)),
+                  )
+           
+  def forward(self, x):
+    res_x = self.conv(x)
+    out = x + res_x
+    return out
+
 class ResBlock(nn.Module):
   def __init__(self, chs, dilations, depth, leaky=False):
     super(ResBlock, self).__init__()
@@ -129,13 +145,13 @@ class SelfAttn(nn.Module):
     return self.gamma * o + x
   
 class VQVAEEncoder(nn.Module):
-  def __init__(self, in_ch, out_ch, num_chs, depth, attn_indices, leaky=False):
+  def __init__(self, in_ch, out_ch, num_chs, strides, depth, attn_indices, leaky=False):
     super(VQVAEEncoder,self).__init__()
     dilations = [3**i for i in range(depth)]
 
     # possível camada para condicionamento
     # self.cond = nn.AdaptiveMaxpool()
-
+    
     kernel_size = 8
     stride=4
     padding = (kernel_size-stride)//2
@@ -144,9 +160,10 @@ class VQVAEEncoder(nn.Module):
 
     res_list = []
     for i in range(1, len(num_chs)):
+      s = strides[i-1]
       res_list.append(nn.ModuleList([nn.BatchNorm1d(num_chs[i-1]),
                                     nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                    nn.Conv1d(num_chs[i-1], num_chs[i], kernel_size, stride=stride, padding=padding),
+                                    nn.Conv1d(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2),
                                     ResBlock(num_chs[i], dilations, depth, leaky)]))
 
     self.res_layers =  nn.ModuleList(res_list)
@@ -187,7 +204,7 @@ class VQVAEEncoder(nn.Module):
     return out
 
 class VQVAEDecoder(nn.Module):
-  def __init__(self, in_ch, out_ch, num_chs, depth, attn_indices, leaky=False):
+  def __init__(self, in_ch, out_ch, num_chs, strides, depth, attn_indices, leaky=False):
     super(VQVAEDecoder,self).__init__()
     dilations = [3**i for i in range(depth)]
     dilations = dilations[::-1]
@@ -209,10 +226,11 @@ class VQVAEDecoder(nn.Module):
 
     res_list = []
     for i in range(1, len(num_chs)):
+      s = strides[i-1]
       res_list.append(nn.ModuleList([ResBlock(num_chs[i-1], dilations, depth, leaky),
                       nn.BatchNorm1d(num_chs[i-1]),
                       nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                      nn.ConvTranspose1d(num_chs[i-1], num_chs[i], kernel_size, stride=stride, padding=padding)]))
+                      nn.ConvTranspose1d(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2)]))
 
     self.res_layers =  nn.ModuleList(res_list)
 

@@ -17,6 +17,7 @@ model:
             out_ch: 1 
             ch: 32
             ch_mult: [1, 1, 2, 2, 4] # downsampling factor: len(ch_mult) - 1
+            strides: [2,2,8,8]
             attn_indices: [2]
             dilation_factor: 3
             dilation_depth: 3
@@ -31,6 +32,7 @@ model:
             in_ch: 1
             ch: 32
             ch_mult: [1, 1, 2, 2, 4, 4, 8]
+            stride: 4
             attn_indices: [2]
             disc_steps: 1
             lr: 1e-4

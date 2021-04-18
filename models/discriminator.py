@@ -5,24 +5,23 @@ import torch.nn.functional as F
 
 
 class ModuleDiscriminator(nn.Module):
-  def __init__(self, in_ch, num_chs, window_size, cont):
+  def __init__(self, in_ch, num_chs, stride, window_size, cont):
     super(ModuleDiscriminator, self).__init__()
     shuffle_n = 0
  
-    kernel_size = 24
-    stride=4
-    padding = (kernel_size-stride)//2
-    
-    self.pre = nn.Sequential(nn.utils.weight_norm(nn.Conv1d(in_ch, num_chs[0], 9, 
-                                      stride=1, padding=4)),
+    self.pre = nn.Sequential(nn.Conv1d(in_ch, num_chs[0], 9, 
+                                      stride=1, padding=4),
                               nn.LeakyReLU(0.2))
     
     module_list = []
     for i in range(1, len(num_chs)):
-      module_list.append(nn.Sequential(nn.utils.weight_norm(nn.Conv1d(num_chs[i-1], num_chs[i], kernel_size, padding=padding, stride=stride)),
+      module_list.append(nn.Sequential(nn.Conv1d(num_chs[i-1], num_chs[i],
+                                                                      kernel_size=stride * 10 + 1,
+                                                                      stride=stride,
+                                                                      padding=stride * 5),#groups=num_chs[i-1] // 4)),                       
                         nn.LeakyReLU(0.2)))
     
-    module_list.append(nn.utils.weight_norm(nn.Conv1d(num_chs[-1], 1, kernel_size=3, stride=1, padding=1)))
+    module_list.append(nn.Conv1d(num_chs[-1], 1, kernel_size=3, stride=1, padding=1))
     
     self.discriminator = nn.ModuleList(module_list)
 
@@ -45,7 +44,7 @@ class ModuleDiscriminator(nn.Module):
     return results[:-1], results[-1]
 
 class MultiDiscriminator(nn.Module):
-  def __init__(self, in_ch, num_chs, num_d, window_size, cont, n_classes=None):
+  def __init__(self, in_ch, num_chs, stride, num_d, window_size, cont, n_classes=None):
     super(MultiDiscriminator, self).__init__()
  
     self.in_ch = in_ch+1 if n_classes is not None else in_ch
@@ -61,7 +60,7 @@ class MultiDiscriminator(nn.Module):
 
     
     self.discriminators = nn.ModuleList(
-        [ModuleDiscriminator(self.in_ch, num_chs, window_size, cont*(2**(i)))
+        [ModuleDiscriminator(self.in_ch, num_chs, stride, window_size, cont*(2**(i)))
          for i in range(num_d)]
     )
  
