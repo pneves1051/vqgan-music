@@ -18,7 +18,8 @@ class ModuleDiscriminator(nn.Module):
       module_list.append(nn.Sequential(nn.Conv1d(num_chs[i-1], num_chs[i],
                                                                       kernel_size=stride * 10 + 1,
                                                                       stride=stride,
-                                                                      padding=stride * 5),#groups=num_chs[i-1] // 4)),                       
+                                                                      padding=stride * 5,
+                                                                      groups=num_chs[i-1] // 4),                       
                         nn.LeakyReLU(0.2)))
     
     module_list.append(nn.Conv1d(num_chs[-1], 1, kernel_size=3, stride=1, padding=1))

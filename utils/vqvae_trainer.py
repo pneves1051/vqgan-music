@@ -140,7 +140,7 @@ class VQVAETrainer():
       
       self.v_optimizer.zero_grad()
      
-      fake, codes = self.vqvae(real)
+      #fake, codes = self.vqvae(real)
 
       d_fake = self.discriminator(fake, conditions)
        
