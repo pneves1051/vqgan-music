@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 class AudioDatasetNoCond(torch.utils.data.IterableDataset):
-  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, use_torch=True, extension='.wav', one_hot=False):
+  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, use_torch=True, extension='.wav', one_hot=False, mu_law=False):
     """
     Args:
       dataset_dir (string): dataset directory
@@ -30,6 +30,7 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
     self.use_torch = use_torch
     self.extension = extension
     self.one_hot = one_hot
+    self.mu_law = mu_law
 
     self.start = 0
     self.end = len(self.file_list)
@@ -60,6 +61,8 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
         # normalization
         signal = signal - signal.mean()
         signal = signal/signal.abs().max()
+        if self.mu_law:
+          signal = 2*((torchaudio.transforms.MuLawEncoding(256)(signal) + 1)/256.) -1.
         
         assert not torch.any(signal.abs() > 1.)
         signal = signal.mean(0, keepdim=True)
@@ -303,17 +306,20 @@ class AudioDataset2(torch.utils.data.IterableDataset):
     return self.read_dataset(self.file_list[iter_start: iter_end],self.batch_size)
 
 class DummyDataset(torch.torch.utils.data.IterableDataset):
-  def __init__(self, sr, window_size, n_iter=1, one_hot=False):
+  def __init__(self, sr, window_size, n_iter=1, one_hot=False, mu_law=False):
     self.sr = sr
     self.window_size = int(2**(np.ceil(np.log2(sr*window_size))))
     self.n_iter=n_iter
     self.one_hot = one_hot
+    self.mu_law = mu_law
 
   def produce_random_batch(self):
     for _ in range(self.n_iter):
       signal = torch.randn((1, 1, self.window_size))
       signal = signal - signal.mean()
       signal = signal/signal.abs().max()
+      if self.mu_law:
+          signal = 2*((torchaudio.transforms.MuLawEncoding(256)(signal) + 1)/256.) -1.
       if self.one_hot:
           signal = torchaudio.transforms.MuLawEncoding(256)(signal)
           signal = F.one_hot(signal)[0].transpose(-1, -2)
