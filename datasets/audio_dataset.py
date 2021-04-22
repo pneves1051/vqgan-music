@@ -59,10 +59,10 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
         if self.sr != orig_sr:
           signal = torchaudio.transforms.Resample(orig_sr, self.sr)(signal)
         # normalization
-        signal = signal - signal.mean()
-        signal = signal/signal.abs().max()
         if self.mu_law:
           signal = 2*((torchaudio.transforms.MuLawEncoding(256)(signal) + 1)/256.) -1.
+        signal = signal - signal.mean()
+        signal = signal/signal.abs().max()        
         
         assert not torch.any(signal.abs() > 1.)
         signal = signal.mean(0, keepdim=True)

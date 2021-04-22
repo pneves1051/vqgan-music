@@ -21,6 +21,7 @@ from models.transformers.transformer import Transformer
 from datasets.transformer_dataset import TransformerDatasetNoCond
 from utils.transformer_trainer import TransformerTrainer
 from utils.utils import encode_dataset, generate
+from utils.augmentations import TimeShift, Gain, Transforms
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(torch.__version__, device)
@@ -39,6 +40,9 @@ dataset = DummyDataset(SAMPLE_RATE, hps['dataset']['win_size'], one_hot=False, m
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=None)
 real = next(iter(dataloader))['inputs'].to(device)
 
+# augmentations
+transforms = Transforms((Gain(-18, +6), Shift(-0.25, 0.25)))
+
 v_hps = hps['model']['vqgan']['vqvae']
 d_hps = hps['model']['vqgan']['disc']
 v_num_chs = [v_hps['ch']*mult for mult in v_hps['ch_mult']]
@@ -49,7 +53,7 @@ d_num_chs = [d_hps['ch']*mult for mult in d_hps['ch_mult']]
 vqvae = VQVAE(v_hps['embed_dim'], v_hps['n_embed'], 1, 1, v_num_chs, v_hps['strides'], v_hps['dilation_depth'], v_hps['attn_indices']).to(device)
 discriminator = MultiDiscriminator(d_hps['in_ch'], d_num_chs, d_hps['stride'], 3, WINDOW_SIZE, CONT, n_classes=None).to(device)
 
-gan_trainer = VQVAETrainer(vqvae, discriminator, dataloader, vqvae_loss, hinge_loss, hps, device)
+gan_trainer = VQVAETrainer(vqvae, discriminator, dataloader, vqvae_loss, hinge_loss, hps, device, transforms=transforms)
 samples = gan_trainer.train(1, 'checkpoint_dir', train_gan=True, log_interval=1)
 
 tr_seq_len = (WINDOW_SIZE//2)//CONT

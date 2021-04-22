@@ -6,13 +6,14 @@ from collections import defaultdict
 import IPython.display as ipd
 
 class VQVAETrainer():
-  def __init__(self, vqvae, discriminator, dataloader, vqvae_loss, gan_loss, hps, device):
+  def __init__(self, vqvae, discriminator, dataloader, vqvae_loss, gan_loss, hps, device, transforms=None):
     self.vqvae = vqvae
     self.discriminator = discriminator    
     self.dataloader = dataloader
     self.vqvae_loss = vqvae_loss
     self.gan_loss = gan_loss
     self.device=device
+    self.transforms=transforms
     
     self.spec_hp = hps['model']['vqgan']['vqvae']['loss']['spectral_hp']
     self.feat_hp = hps['model']['vqgan']['vqvae']['loss']['feat_hp']
@@ -109,13 +110,20 @@ class VQVAETrainer():
 
         self.d_optimizer.zero_grad()
         #Forward of the real batch through D
-        d_real = self.discriminator(real, conditions)
+        if self.transforms is not None:
+          d_real = self.discriminator(self.transforms(real), conditions)
+        else:
+          d_real = self.discriminator(real, conditions)
+
         #torch.nn.utils.clip_grad_norm_(self.dis.parameters(), 0.5)
 
         # VQ_VAE reconstructions
         fake, codes = self.vqvae(real)
         # Fake batch goes through d
-        d_fake = self.discriminator(fake.detach(), conditions)
+        if self.transforms is not None:
+          d_fake = self.discriminator(self.transforms(fake.detach()), conditions)
+        else:
+          d_fake = self.discriminator(fake.detach(), conditions)
         
         d_loss = 0
         D_x = 0
@@ -141,8 +149,10 @@ class VQVAETrainer():
       self.v_optimizer.zero_grad()
      
       #fake, codes = self.vqvae(real)
-
-      d_fake = self.discriminator(fake, conditions)
+      if self.transforms is not None:
+        d_fake = self.discriminator(self.transforms(fake.detach()), conditions)
+      else:
+        d_fake = self.discriminator(fake.detach(), conditions)
        
       l2_loss, lat_loss, spec_loss = self.vqvae_loss(real, fake, codes, spec_hp=self.spec_hp)
       rec_loss = l2_loss + spec_loss

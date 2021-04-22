@@ -3,8 +3,8 @@ dataset:
     num_workers: 3
     pin_memory: True
     sample_rate: 44100
-    win_size: 1
-    hop_len: 1
+    win_size: 0.5
+    hop_len: 0.5
     tr_b_size: 1
     tr_len: 
 
