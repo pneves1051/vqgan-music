@@ -150,9 +150,9 @@ class VQVAETrainer():
      
       #fake, codes = self.vqvae(real)
       if self.transforms is not None:
-        d_fake = self.discriminator(self.transforms(fake.detach()), conditions)
+        d_fake = self.discriminator(self.transforms(fake), conditions)
       else:
-        d_fake = self.discriminator(fake.detach(), conditions)
+        d_fake = self.discriminator(fake, conditions)
        
       l2_loss, lat_loss, spec_loss = self.vqvae_loss(real, fake, codes, spec_hp=self.spec_hp)
       rec_loss = l2_loss + spec_loss

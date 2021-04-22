@@ -22,7 +22,7 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
     """
     self.dataset_dir = dataset_dir
     self.file_list = glob.glob(dataset_dir)
-    
+        
     self.sr = sr
     self.window_size = int(2**(np.ceil(np.log2(sr*window_size))))
     self.hop_len = int(2**(np.ceil(np.log2(sr*hop_len))))
@@ -58,11 +58,12 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
           signal = torch.Tensor(signal)
         if self.sr != orig_sr:
           signal = torchaudio.transforms.Resample(orig_sr, self.sr)(signal)
+               
+        signal = signal - signal.mean()
+        signal = signal/signal.abs().max()        
         # normalization
         if self.mu_law:
           signal = 2*((torchaudio.transforms.MuLawEncoding(256)(signal) + 1)/256.) -1.
-        signal = signal - signal.mean()
-        signal = signal/signal.abs().max()        
         
         assert not torch.any(signal.abs() > 1.)
         signal = signal.mean(0, keepdim=True)
@@ -79,6 +80,10 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
             ids.append(torch.Tensor([self.file_list.index(file)]))
           audio.append(current_signal)
           if len(audio) >= self.batch_size:
+            shuffled_inputs = list(zip(ids, audio))
+            random.shuffle(shuffled_inputs)
+            ids, audio = zip(*shuffled_inputs)
+
             batch = {'ids': [], 'inputs': [], 'conditions': None}
             batch['ids'] = torch.stack(ids)
             batch['inputs'] =  torch.stack(audio)
