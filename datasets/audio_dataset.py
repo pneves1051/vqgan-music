@@ -10,7 +10,7 @@ import torch
 import torch.nn.functional as F
 
 class AudioDatasetNoCond(torch.utils.data.IterableDataset):
-  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, use_torch=True, extension='.wav', one_hot=False, mu_law=False):
+  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, shuffle=True, use_torch=True, extension='.wav', one_hot=False, mu_law=False):
     """
     Args:
       dataset_dir (string): dataset directory
@@ -27,6 +27,7 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
     self.window_size = int(2**(np.ceil(np.log2(sr*window_size))))
     self.hop_len = int(2**(np.ceil(np.log2(sr*hop_len))))
     self.batch_size = batch_size
+    self.shuffle = shuffle
     self.use_torch = use_torch
     self.extension = extension
     self.one_hot = one_hot
@@ -43,7 +44,8 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
 
   def read_dataset(self, file_list, batch_size):
     shuffled_list = file_list.copy()
-    random.shuffle(shuffled_list)    
+    if self.shuffle:
+      random.shuffle(shuffled_list)    
     
     audio=[]
     ids = []
@@ -53,11 +55,10 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
         # load file
         if self.use_torch:
           signal, orig_sr = torchaudio.load(file)
-          signal = signal.type(torch.float16)
+          #signal = signal.type(torch.float16)
         else:
           signal, orig_sr = librosa.load(file, sr=self.sr, mono=False)
           signal = torch.Tensor(signal)
-          signal = signal.type(torch.float16)
         if self.sr != orig_sr:
           signal = torchaudio.transforms.Resample(orig_sr, self.sr)(signal)
                
@@ -72,9 +73,10 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
         if self.one_hot:
           signal = torchaudio.transforms.MuLawEncoding(256)(signal)
           signal = F.one_hot(signal)[0].transpose(-1,-2)
-          
-        sliced_signal = torch.split(signal, [1, self.window_size])
-        sliced_signal = sliced_signal[torch.randperm(sliced_signal.shape[0])]
+        
+        sliced_signal = torch.stack(torch.split(signal, self.window_size, dim=-1)[:-1])
+        if self.shuffle: 
+          sliced_signal = sliced_signal[torch.randperm(len(sliced_signal))]
 
         for s in sliced_signal:
           try:
@@ -83,9 +85,10 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
             ids.append(torch.Tensor([self.file_list.index(file)]))
           audio.append(s)
           if len(audio) >= self.batch_size:
-            shuffled_inputs = list(zip(ids, audio))
-            random.shuffle(shuffled_inputs)
-            ids, audio = zip(*shuffled_inputs)
+            if self.shuffle:
+              shuffled_inputs = list(zip(ids, audio))
+              random.shuffle(shuffled_inputs)
+              ids, audio = zip(*shuffled_inputs)
 
             batch = {'ids': [], 'inputs': [], 'conditions': None}
             batch['ids'] = torch.stack(ids)

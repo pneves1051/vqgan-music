@@ -121,7 +121,7 @@ class VQVAETrainer():
         fake, codes = self.vqvae(real)
         # Fake batch goes through d
         if self.transforms is not None:
-          d_fake = self.discriminator(self.transforms(fake.detach()), conditions)
+          d_fake = self.discriminator(self.transforms(fake).detach(), conditions)
         else:
           d_fake = self.discriminator(fake.detach(), conditions)
         
