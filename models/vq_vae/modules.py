@@ -15,7 +15,7 @@ class VectorQuantizer(nn.Module):
     # k: size of the discrete latent space
     self.embed_dim = embed_dim
     self.n_embed = n_embed
-    self.dacay = decay
+    self.decay = decay
     self.eps = eps
     # d: dimension of each embedding latent vector
     # (k embedding vectors)
