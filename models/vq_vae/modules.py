@@ -20,7 +20,7 @@ class VectorQuantizer(nn.Module):
     # d: dimension of each embedding latent vector
     # (k embedding vectors)
     # codebook: contains the k d-dimensional vectors from the quantized latent space
-    embed = torch.randn(dim, n_embed)
+    embed = torch.randn(embed_dim, n_embed)
     self.register_buffer("embed", embed)
     self.register_buffer("cluster_size", torch.zeros(n_embed))
     self.register_buffer("embed_avg", embed.clone())

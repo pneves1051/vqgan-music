@@ -22,7 +22,6 @@ model:
             lr: 1e-4            
             loss:
                 feat_hp: 10 
-                spectral: true
                 spectral_hp: 0
                 spectral_n_fft: [2048, 1024, 512]
                 spectral_hop_len: [512, 256, 128]
