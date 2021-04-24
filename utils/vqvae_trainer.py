@@ -162,8 +162,9 @@ class VQVAETrainer():
       D_G_z2 = 0
       for (feats_real, _), (feats_fake, score_fake) in zip(d_real, d_fake):
         D_G_z2 += score_fake.mean().item()
-        for feat_real, feat_fake in zip(feats_real, feats_fake):
-          feat_loss += F.l1_loss(feat_fake, feat_real.detach())
+        if self.feat_hp != 0.0:
+          for feat_real, feat_fake in zip(feats_real, feats_fake):
+            feat_loss += F.l1_loss(feat_fake, feat_real.detach())
         # Calculate G loss
         g_loss += self.gan_loss(score_fake=score_fake, mode='g')
       
