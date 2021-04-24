@@ -158,7 +158,7 @@ class VQVAETrainer():
       rec_loss = l2_loss + spec_loss
 
       g_loss = 0
-      feat_loss = 0
+      feat_loss = torch.Tensor(0)
       D_G_z2 = 0
       for (feats_real, _), (feats_fake, score_fake) in zip(d_real, d_fake):
         D_G_z2 += score_fake.mean().item()
