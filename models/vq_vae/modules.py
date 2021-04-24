@@ -1,6 +1,6 @@
 import torch
 import torch.nn as nn
-import torch.F as F
+import torch.nn.functional as F
 
 
 class VectorQuantizer(nn.Module):
@@ -20,8 +20,8 @@ class VectorQuantizer(nn.Module):
     # d: dimension of each embedding latent vector
     # (k embedding vectors)
     # codebook: contains the k d-dimensional vectors from the quantized latent space
-    embeddings = torch.randn(dim, n_embed)
-    self.register_buffer("embeddings", embed)
+    embed = torch.randn(dim, n_embed)
+    self.register_buffer("embed", embed)
     self.register_buffer("cluster_size", torch.zeros(n_embed))
     self.register_buffer("embed_avg", embed.clone())
     
@@ -29,9 +29,9 @@ class VectorQuantizer(nn.Module):
     #emb.data.uniform_(-1/n_embed, 1/n_embed)
     #torch.nn.init.xavier_uniform_(emb)
     #self.embedding= nn.Parameter(emb)
-    #self.register_parameter('embeddings', self.embedding)  
+    #self.register_parameter('embed', self.embedding)  
 
-    #embeddings = nn.Embedding(n_embed, embed_dim)
+    #embed = nn.Embedding(n_embed, embed_dim)
   
   def forward(self, inputs):
     """Connects the module to some inputs.
@@ -52,8 +52,8 @@ class VectorQuantizer(nn.Module):
     # distance between the input and the embedding elements (batch*len, embed_dim)
     distances = (
         torch.sum(flat_inputs**2, 1, keepdim=True)
-        - 2*torch.matmul(flat_inputs, self.embeddings)
-         + torch.sum(self.embeddings**2, 0, keepdim=True)
+        - 2*torch.matmul(flat_inputs, self.embed)
+         + torch.sum(self.embed**2, 0, keepdim=True)
     )
     
     # index with smaller distance beetween the input and the embedding elements
@@ -70,13 +70,17 @@ class VectorQuantizer(nn.Module):
     quantized = self.quantize(encoding_indices)
 
     if self.training:
-      # find number of time each code occurred
+      # find number of times each code occurred
       # (n_embed,)
       encodings_sum = encodings.sum(0)
-      # 
+      # dn
       # (embed_dim, batch*len)@(batch*len, n_embed) -> (embed_dim, n_embed)
       embed_sum = flat_inputs.transpose(0, 1) @ encodings
 
+      self.cluster_size.data.mul_(self.decay).add_(
+        encodings_sum, alpha=1-self.decay
+      )
+      # calculate EMA
       self.embed_avg.data.mul_(self.decay).add_(embed_sum, alpha=1 - self.decay)
       n = self.cluster_size.sum()
       cluster_size = (
@@ -84,7 +88,6 @@ class VectorQuantizer(nn.Module):
       )
       embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
       self.embed.data.copy_(embed_normalized)
-
 
     # before the detach
     codes = torch.cat([inputs, quantized], axis=-1)
@@ -97,7 +100,7 @@ class VectorQuantizer(nn.Module):
   
   def quantize(self, encoding_indices):
     """Returns embedding vector for a batch of indices"""
-    return F.embedding(encoding_indices, self.embeddings.transpose(1,0))
+    return F.embedding(encoding_indices, self.embed.transpose(1,0))
 
 class ResLayer(nn.Module):
   def __init__(self, chs, dilation, leaky=False):
