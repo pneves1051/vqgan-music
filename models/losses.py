@@ -42,7 +42,7 @@ def mel_loss(real, fake, n_fft=1024, hop_length=256, sample_rate=44100):
 def vqvae_loss(real, fake, codes, beta=0.25, spec_hp=1.0):
   l2_loss = F.mse_loss(fake, real)
   lat_loss = latent_loss(codes, beta=beta)
-  spec_loss = torch.Tensor(0).to(real.device)
+  spec_loss = 0
   if spec_hp != 0.0:
     spec_loss = multispectral_loss(fake, real)
   return l2_loss, lat_loss, spec_hp*spec_loss

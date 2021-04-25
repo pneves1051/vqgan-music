@@ -31,6 +31,12 @@ class VQVAETrainer():
     #self.d_scheduler = torch.optim.lr_scheduler.StepLR(self.d_optimizer, 1.0, gamma=0.95) 
 
     self.hps=hps
+
+    data = next(iter(self.dataloader))
+    self.fixed_real = data['inputs'].to(self.device)
+    self.fixed_conditions = data['conditions']
+    if self.fixed_conditions is not None:
+      self.fixed_conditions = self.fixed_conditions.to(self.device)
     
   def get_loss_hp(self, rec_loss, g_loss, last_layer):
     rec_grads = torch.autograd.grad(rec_loss, last_layer, retain_graph=True)[0]
@@ -158,7 +164,7 @@ class VQVAETrainer():
       rec_loss = l2_loss + spec_loss
 
       g_loss = 0
-      feat_loss = torch.Tensor(0).to(d_fake.device)
+      feat_loss = 0
       D_G_z2 = 0
       for (feats_real, _), (feats_fake, score_fake) in zip(d_real, d_fake):
         D_G_z2 += score_fake.mean().item()
@@ -188,8 +194,8 @@ class VQVAETrainer():
       # Save losses to plot later
       d_losses.append(d_loss.item())
       g_losses.append(g_loss.item())
-      feat_losses.append(feat_loss.item())
-      vqvae_losses.append([l2_loss.item(), lat_loss.item(), spec_loss.item()])
+      feat_losses.append(torch.Tensor(feat_loss).item())
+      vqvae_losses.append([l2_loss.item(), lat_loss.item(), torch.Tensor(spec_loss).item()])
       
     return np.mean(d_losses, 0), np.mean(g_losses, 0), np.mean(feat_losses, 0), np.mean(vqvae_losses, 0)
 
@@ -238,16 +244,13 @@ class VQVAETrainer():
         
       torch.save(checkpoint, checkpoint_dir + 'checkpoint.pth')
 
-      fake = self.evaluate()
+      fake = self.evaluate(self.fixed_real, self.fixed_conditions)
       samples.append(fake)
                    
     return samples
 
-  def evaluate(self):
+  def evaluate(self, real, conditions):
     self.vqvae.eval()
-    data = next(iter(self.dataloader))
-    real = data['inputs'].to(self.device)
-    conditions = data['conditions']
     if conditions is not None:
       conditions = conditions.to(self.device)
     with torch.no_grad():
