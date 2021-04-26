@@ -3,8 +3,8 @@ dataset:
     num_workers: 3
     pin_memory: True
     sample_rate: 44100
-    win_size: 0.5
-    hop_len: 0.5
+    win_size: 0.25
+    hop_len: 0.25
     tr_b_size: 1
     tr_len: 
 
@@ -15,7 +15,7 @@ model:
             n_embed: 256
             in_ch: 1
             out_ch: 1 
-            ch: 32
+            ch: 16
             ch_mult: [1, 1, 2, 2, 4] # downsampling factor: len(ch_mult) - 1
             strides: [2,2,8,8]
             attn_indices: [2]
@@ -30,7 +30,7 @@ model:
                 spectral_hop_len: [512, 256, 128]
         disc:
             in_ch: 1
-            ch: 32
+            ch: 16
             ch_mult: [1, 1, 2, 2, 4, 4, 8]
             stride: 4
             attn_indices: [2]
@@ -41,5 +41,5 @@ model:
         d_model: 256 # dimension of hidden units
         n_head: 4 # number of attention heads
         n_layer: 2 # number of encoder layers 
-        max_len: 10000 # max number of elements in sequenceks   
+        max_len: 10000 # max number of elements in sequences   
         lr: 1e-4   

@@ -41,7 +41,7 @@ dataloader = torch.utils.data.DataLoader(dataset, batch_size=None)
 real = next(iter(dataloader))['inputs'].to(device)
 
 # augmentations
-transforms = Transforms((Gain(-18, +6), Shift(-0.25, 0.25)))
+transforms = Transforms((Gain(-18, +6), TimeShift(SAMPLE_RATE, -0.25, 0.25)))
 
 v_hps = hps['model']['vqgan']['vqvae']
 d_hps = hps['model']['vqgan']['disc']
