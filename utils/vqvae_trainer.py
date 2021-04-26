@@ -80,7 +80,7 @@ class VQVAETrainer():
         start_time = time.time()
 
       vqvae_losses.append([l2_loss.item(), lat_loss.item(), spec_loss.item()])
-    return vqvae_losses
+    return np.mean(vqvae_losses, 0)
     
   def train_epoch_gan(self, log_interval=20):
     self.vqvae.train()
@@ -194,8 +194,8 @@ class VQVAETrainer():
       # Save losses to plot later
       d_losses.append(d_loss.item())
       g_losses.append(g_loss.item())
-      feat_losses.append(torch.Tensor(feat_loss).item())
-      vqvae_losses.append([l2_loss.item(), lat_loss.item(), torch.Tensor(spec_loss).item()])
+      feat_losses.append(feat_loss.item() if type(feat_loss) == torch.Tensor else feat_loss)
+      vqvae_losses.append([l2_loss.item(), lat_loss.item(), spec_loss.item() if type(spec_loss) == torch.Tensor else spec_loss])
       
     return np.mean(d_losses, 0), np.mean(g_losses, 0), np.mean(feat_losses, 0), np.mean(vqvae_losses, 0)
 
@@ -228,13 +228,12 @@ class VQVAETrainer():
               feat_loss, vqvae_loss))
       else:
         vqvae_loss = self.train_epoch()
-        history['train_loss'].append(train_loss)
-        history['train_loss_list'].append(train_loss_list)
+        history['train_loss'].append(vqvae_loss)
         #valid_loss, valid_loss_list = self.evaluate(self.valid_dataloader)
 
-        print('| End of epoch {:3d}  | time: {:5.2f}s | vqvae_loss {:5.5f} |'
+        print('| End of epoch {:3d}  | time: {:5.2f}s | vqvae_loss {} |'
               ' valid loss {} | valid_loss_list: {} '.format(epoch+1, (time.time()-epoch_start_time),
-                                            vqvae_loss, 'valid_loss', 'valid_loss_list'))
+                                            vqvae_loss, 0.0, 0.0))
 
       checkpoint = { 
             'vqvae': self.vqvae.state_dict(),

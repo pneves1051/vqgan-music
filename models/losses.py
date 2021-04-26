@@ -16,11 +16,11 @@ def latent_loss(codes, beta=0.25):
   return latent_loss
 
 def spectral_loss(real, fake, n_fft=1024, hop_length=256, eps=1e-4):
-  real_spec = spec(stft(squeeze(real), n_fft = n_fft, hop_length=hop_length))
-  fake_spec = spec(stft(squeeze(fake), n_fft = n_fft, hop_length=hop_length))
+  real_spec = spec(squeeze(real), n_fft = n_fft, hop_length=hop_length)
+  fake_spec = spec(squeeze(fake), n_fft = n_fft, hop_length=hop_length)
   #spectral_loss = torch.linalg.norm(real_spec.view(real_spec.shape[0], -1) 
   #                                  - fake_spec.view(fake_spec.shape[0], -1), ord='fro')
-  spec_loss = F.mse_loss(real_spec,fake_spec)
+  spec_loss = norm(real_spec - fake_spec)
     
   return spec_loss
 
