@@ -1,7 +1,7 @@
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
-from models.spec_transforms import stft, spec, create_mel, squeeze
+from models.spec_transforms import stft, spec, create_mel, squeeze, norm
 
 # VQ_VAE losses
 
