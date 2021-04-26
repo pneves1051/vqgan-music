@@ -158,7 +158,7 @@ def stft(input, n_fft=1024, hop_length=256):
   
 def spec(x, n_fft=1024, hop_length=256):
   #print(torch.linalg.norm(stft, ord=2, dim=-1) == torch.norm(stft, p=2, dim=-1))
-  spec = torch.linalg.norm(stft(x, n_fft, hop_len), ord=2, dim=-1)
+  spec = torch.linalg.norm(stft(x, n_fft, hop_length, ord=2, dim=-1))
   return spec
   #return torch.norm(stft, ord=2, dim=-1)
 
