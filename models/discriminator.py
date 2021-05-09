@@ -129,7 +129,7 @@ class AttnDiscriminator(nn.Module):
                             weight_tie_layers = False,
                             fourier_encode_data = True,
                             self_per_cross_attn = 2)
-  def forward(self, inputs):
+  def forward(self, inputs, conditions=None):
     results = []
     x = self.pre_encoder(inputs).transpose(-1, -2)
     out = self.encoder(x, inputs.transpose(-1, -2))
