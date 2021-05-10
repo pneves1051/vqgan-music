@@ -106,9 +106,9 @@ class AttnDiscriminator(nn.Module):
     
     num_layers = int(math.log(comp, stride))
 
-    self.pre_encoder = [nn.Conv1d(input_channels, embed_dim, kernel_size,stride=stride, padding=padding), nn.ReLU()]
+    self.pre_encoder = [nn.Conv1d(input_channels, embed_dim, kernel_size,stride=stride, padding=padding), nn.LeakyReLU(0.2)]
     for _ in range(num_layers-2):
-      self.pre_encoder.extend([nn.Conv1d(embed_dim, embed_dim, kernel_size,stride=stride, padding=padding), nn.ReLU()])
+      self.pre_encoder.extend([nn.Conv1d(embed_dim, embed_dim, kernel_size,stride=stride, padding=padding), nn.LeakyReLU(0.2)])
     self.pre_encoder.extend([nn.Conv1d(embed_dim, embed_dim, kernel_size,stride=stride, padding=padding)])
     self.pre_encoder = nn.Sequential(*self.pre_encoder)
     

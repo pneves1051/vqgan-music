@@ -76,9 +76,13 @@ class AttnVQVAE(nn.Module):
 
     num_layers = int(math.log(comp, stride))
     
-    self.pre_encoder = [nn.Conv1d(input_channels, embed_dim, kernel_size,stride=stride, padding=padding), nn.ReLU()]
+    self.pre_encoder = [nn.Conv1d(input_channels, embed_dim, kernel_size,stride=stride, padding=padding), 
+                        nn.BatchNorm1d(embed_dim),
+                        nn.ReLU()]
     for _ in range(num_layers-2):
-      self.pre_encoder.extend([nn.Conv1d(embed_dim, embed_dim, kernel_size,stride=stride, padding=padding), nn.ReLU()])
+      self.pre_encoder.extend([nn.Conv1d(embed_dim, embed_dim, kernel_size,stride=stride, padding=padding), 
+                              nn.BatchNorm1d(embed_dim),
+                              nn.ReLU()])
     self.pre_encoder.extend([nn.Conv1d(embed_dim, embed_dim, kernel_size,stride=stride, padding=padding)])
     self.pre_encoder = nn.Sequential(*self.pre_encoder)
     
@@ -122,7 +126,9 @@ class AttnVQVAE(nn.Module):
 
     self.post_decoder = []
     for _ in range(num_layers-1):
-      self.post_decoder.extend([nn.ConvTranspose1d(embed_dim, embed_dim, kernel_size, stride=stride, padding=padding), nn.ReLU()])
+      self.post_decoder.extend([nn.ConvTranspose1d(embed_dim, embed_dim, kernel_size, stride=stride, padding=padding),
+                                nn.BatchNorm1d(embed_dim),
+                                nn.ReLU()])
     self.post_decoder = nn.Sequential(*self.post_decoder)
     
     self.last_conv = nn.ConvTranspose1d(embed_dim, output_channels, kernel_size, stride=stride, padding=padding)
