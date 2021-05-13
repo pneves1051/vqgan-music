@@ -11,6 +11,8 @@ if platform.system() == 'Windows':
 else:
     torchaudio.set_audio_backend('sox_io')
 
+#os.chdir('VQ_GAN_music')
+
 from datasets.audio_dataset import DummyDataset
 from models.vq_vae.vq_vae import VQVAE, AttnVQVAE
 from models.discriminator import MultiDiscriminator, AttnDiscriminator
@@ -26,7 +28,6 @@ from utils.augmentations import TimeShift, Gain, Transforms
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(torch.__version__, device)
 
-#os.chdir('VQ_GAN_music')
 with open(r'./config/test.yaml') as file:
     hps = yaml.full_load(file)
 
@@ -38,7 +39,7 @@ CONT = 4**(len(hps['model']['vqgan']['vqvae']['ch_mult'])-1)
 # Dataset creation
 dataset = DummyDataset(SAMPLE_RATE, hps['dataset']['win_size'], one_hot=False, mu_law=True)
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=None)
-real = next(iter(dataloader))['inputs'].to(device)
+real = next(iter(dataloader))['inputs'][:, :, :512].to(device)
 
 # augmentations
 transforms = Transforms((Gain(-18, +6), TimeShift(SAMPLE_RATE, -0.25, 0.25)))
@@ -49,13 +50,14 @@ v_num_chs = [v_hps['ch']*mult for mult in v_hps['ch_mult']]
 d_num_chs = [d_hps['ch']*mult for mult in d_hps['ch_mult']]
 
 # model creation
-vqvae = AttnVQVAE(v_hps['embed_dim'], v_hps['n_embed'], 1, 1, 256, 6).to(device)
+vqvae = AttnVQVAE(v_hps['embed_dim'], v_hps['n_embed'], 1, 1, real.shape[-1], [2, 2]).to(device)
 test = vqvae(real)
 print(test[0].shape)
 
-discriminator = AttnDiscriminator(v_hps['embed_dim'], 1, 256, 6).to(device)
+discriminator = AttnDiscriminator(embed_dim=v_hps['embed_dim'], 
+                sample_length=real.shape[1], patch_size=256, in_channels=1, num_classes=1, depth=3).to(device)
 test2 = discriminator(real)
-print(test2.shape)
+print(test2)
 
 '''
 discriminator = MultiDiscriminator(d_hps['in_ch'], d_num_chs, d_hps['stride'], 3, WINDOW_SIZE, CONT, n_classes=None).to(device)

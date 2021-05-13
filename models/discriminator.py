@@ -5,8 +5,8 @@ import torch
 import torch.nn as nn
 import torch.nn.functional as F
 
-from models.vq_vae.attention import AttnBlock
-
+from models.vq_vae.attention import Block, audio_upsample, SelfAttn
+from utils.utils import trunc_normal_
 
 
 class ModuleDiscriminator(nn.Module):
@@ -93,47 +93,134 @@ class MultiDiscriminator(nn.Module):
       
     return results  # (feat, score), (feat, score), ...
 
+###################ATTN(Trnasgan)
+
+class PatchEmbed(nn.Module):
+  """ Audio to patch embedding
+  """
+  def __init__(self, sample_length = 65536, patch_size = 256, in_channels=1, embed_dim = 768):
+    super().__init__()
+    num_patches = sample_length//patch_size
+    self.sample_length = sample_length
+    self.patch_size = patch_size
+    self.num_patches = num_patches
+
+    self.proj = nn.Conv1d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size)
+
+  def forward(self, x):
+    B, C, L = x.shape
+    assert L == self.sample_length, \
+      f"Input sample_length ({L}) doesn't match model ({self.sample_length})."
+    
+    # (batch, chan, length) -> (batch, length, chan)
+    x = self.proj(x).flatten(2).transpose(1, 2)
+    return x
+
+
+class HybridEmbed(nn.Module):
+  """ CNN Feature Map Embedding
+  Extract feature map from CNN, flatten, project to embedding dim
+  (hybrid because cnn + linear)
+  """
+  def __init__(self, backbone, sample_length=65536, feature_size=None, in_channels=1, embed_dim=768):
+      super().__init__()
+      assert isinstance(backbone, nn.Module)
+      self.img_size = sample_length
+      self.backbone = backbone
+      if self.feature_size is None:
+        with torch.no_grad():
+          training = backbone.training
+          if training:
+            backbone.eval()
+          o = self.backbone(torch.zeros(1, in_channels, sample_length))[-1]
+          feature_size = o.shape[-1]
+          feature_dim = o.shape[1]
+          backbone.train(training)
+      else: 
+        feature_dim = self.backbone.feature_info.channels()[-1]
+      self.num_patches = feature_size
+      self.proj = nn.Linear(feature_dim, embed_dim)
+  def forward(self, x):
+    x = self.backbone(x)[-1]
+    x = x.flatten(2).transpose(1, 2)
+    x = self.proj(x)
+    return x
+
 
 class AttnDiscriminator(nn.Module):
-  def __init__(self, embed_dim, input_channels, comp, depth):
-    super().__init__()
+  def __init__(self, embed_dim=384, sample_length=65536, patch_size=256, in_channels=1, num_classes=10, depth=7,
+                  num_heads=4, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
+                  drop_path_rate=0., hybtrid_backbone=None, norm_layer=nn.LayerNorm):
+    super(AttnDiscriminator, self).__init__()
+    self.num_classes = num_classes
+    self.num_features = embed_dim
+    patch_size = patch_size
 
-    kernel_size = 8
-    stride=4
-    padding = (kernel_size-stride)//2
+    if hybtrid_backbone is not None:
+      self.patch_embed = HybridEmbed(
+        hybtrid_backbone, sample_length=sample_length, in_channels=in_channels, embed_dim=embed_dim)
+    else:
+      self.patch_embed = nn.Conv1d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size, padding=0)
+    num_patches = sample_length // patch_size
 
-    self.input_channels = input_channels
-    
-    num_layers = int(math.log(comp, stride))
+    self.cls_token = nn.Parameter(torch.zeros(1, 1, embed_dim))
+    self.pos_embed = nn.Parameter(torch.zeros(1, num_patches+1, embed_dim))
+    self.pos_drop = nn.Dropout(p=drop_rate)
 
-    self.pre_encoder = [nn.Conv1d(input_channels, embed_dim, kernel_size,stride=stride, padding=padding), nn.LeakyReLU(0.2)]
-    for _ in range(num_layers-2):
-      self.pre_encoder.extend([nn.Conv1d(embed_dim, embed_dim, kernel_size,stride=stride, padding=padding), nn.LeakyReLU(0.2)])
-    self.pre_encoder.extend([nn.Conv1d(embed_dim, embed_dim, kernel_size,stride=stride, padding=padding)])
-    self.pre_encoder = nn.Sequential(*self.pre_encoder)
-    
-    self.encoder = AttnBlock(input_channels=input_channels,
-                            input_axis=1,
-                            num_freq_bands = 6,
-                            max_freq = 44100,
-                            depth = depth,
-                            num_latents = 512,
-                            latent_dim = embed_dim,
-                            cross_heads = 1,
-                            latent_heads = 8,
-                            cross_dim_head = 64,
-                            latent_dim_head = 64,
-                            num_classes = 1000,
-                            attn_dropout = 0.,
-                            ff_dropout = 0.,
-                            weight_tie_layers = False,
-                            fourier_encode_data = True,
-                            self_per_cross_attn = 2)
-  def forward(self, inputs, conditions=None):
+    dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depth)] # stochastic depth decay rule
+    self.blocks = nn.ModuleList([
+                Block(dim=embed_dim, num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                      drop=drop_rate, attn_drop=drop_rate, drop_path=dpr[i], norm_layer=norm_layer)
+                for i in range(depth)])
+
+    self.norm = norm_layer(embed_dim)
+
+    self.head = nn.Linear(embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
+    trunc_normal_(self.pos_embed, std=.02)
+    trunc_normal_(self.cls_token, std=.02)
+    self.apply(self._init_weights)
+
+  def _init_weights(self, m):
+    if isinstance(m, nn.Linear):
+      trunc_normal_(m.weight, std=.02)
+      if isinstance(m, nn.Linear) and m.bias is not None:
+        nn.init.constant_(m.bias, 0)
+    elif isinstance(m, nn.LayerNorm):
+      nn.init.constant_(m.bias, 0)
+      nn.init.constant_(m.weight, 1.0)
+
+  @torch.jit.ignore
+  def no_weight_decay(self):
+    return{'pos_embed', 'cls_token'}
+
+  def get_classifier_head(self):
+    return self.head
+
+  def reset_classifier(self, num_classes, global_pool=''):
+    self.num_classes = num_classes
+    self.head = nn.Linear(self.embed_dim, num_classes) if num_classes > 0 else nn.Identity()
+
+  def forward_features(self, x):
+    B = x.shape[0]
+    # (batch, chan, len) -> (batch, len, chan)
+    x = self.patch_embed(x).flatten(2).permute(0, 2, 1)
+
+    cls_tokens = self.cls_token.expand(B, -1, -1)
+    x = torch.cat((cls_tokens, x), dim=1)
+    x = x + self.pos_embed
+    x = self.pos_drop(x)
+    for block in self.blocks:
+      x = block(x)
+
+    x = self.norm(x)
+    return x[:, 0]
+
+  def forward(self, x):
     results = []
-    x = self.pre_encoder(inputs).transpose(-1, -2)
-    out = self.encoder(x, inputs.transpose(-1, -2))
-
-    results.append((x, out))
-
-    return results
+    x = self.forward_features(x)
+    results.append(x)
+    x = self.head(x)
+    results.append(x)
+    
+    return (results,)

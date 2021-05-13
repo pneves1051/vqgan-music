@@ -2,7 +2,8 @@ import torch
 from torch import nn
 import torch.nn.functional as F
 
-from models.vq_vae.attention import SelfAttn, AttnBlock
+from models.vq_vae.attention import Block, audio_upsample, audio_downsample, SelfAttn
+from utils.utils import trunc_normal_
 
 class VectorQuantizer(nn.Module):
   def __init__(self, embed_dim, n_embed, decay=0.99, eps=1e-5):
@@ -265,6 +266,106 @@ class VQVAEDecoder(nn.Module):
 
 ########ATTN########
 
+class AttnEncoder(nn.Module):
+  def __init__(self, embed_dim, sample_length, patch_size=256, in_channels=1, out_channels=512,  num_classes=10, depths=[2, 3, 3, 5],
+                  num_heads=4, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
+                  drop_path_rate=0., hybtrid_backbone=None, norm_layer=nn.LayerNorm):
+    super(AttnEncoder, self).__init__()
+    self.ch = embed_dim
+    self.embed_dim = embed_dim
+    self.sample_length = sample_length
+    self.levels = len(depths)
+
+    #self.patch_embed = nn.Conv1d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size, padding=0)
+    
+    #self.l1 = nn.Linear(latent_dim, (self.bottom_width) * self.embed_dim)
+    self.pos_embed = [nn.Parameter(torch.zeros(1, self.sample_length//(4**i), embed_dim//(4**(len(depths)-1-i)))) for i in range(len(depths))]
+    
+    is_mask = True
+    dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depths[0])] # stochastic depth decay rule
+
+    self.blocks = nn.ModuleList([
+                    Block(dim=embed_dim, num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                          drop=drop_rate, attn_drop=drop_rate, drop_path=dpr[i], norm_layer=norm_layer)
+                    for i in range(depths[0])])
+
+    # List of sublists of blocks. Each sublist works in a specific scale.
+    self.downsample_blocks = nn.ModuleList([
+                    nn.ModuleList(
+                      #[Block(dim=embed_dim//(4**i), num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                      #drop_rate=drop_rate, attn_drop=drop_rate, drop_path=0, norm_layer=norm_layer)] +\
+                      [Block(dim=embed_dim//(4**(len(depths)-1-i)), num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                      drop=drop_rate, attn_drop=drop_rate, drop_path=0, norm_layer=norm_layer, is_mask=0) for _ in range(depth)]) for i, depth in enumerate(depths)])
+
+    for i in range(len(self.pos_embed)):
+      trunc_normal_(self.pos_embed[i], std=.02)
+                    
+    self.deconv = nn.Sequential(nn.Conv1d(self.embed_dim, 1, 1, 1, 0))
+
+  def forward(self, x, epoch=0):
+    #x = self.patch_embed(x)
+    B = x.size()
+    #for index, block in enumerate(self.blocks):
+    #  x = block(x, epoch)
+    for index, block in enumerate(self.downsample_blocks):
+      x = x + self.pos_embed[index].to(x.get_device())
+      for b in block:
+        x = b(x, epoch)
+      if index != len(self.downsample_blocks)-1:
+        x, L = audio_downsample(x)
+      
+    out = x
+    return out
 
 
+class AttnDecoder(nn.Module):
+  def __init__(self, embed_dim, sample_length, patch_size=256, in_channels=1, num_classes=10, depths=[5, 3, 3, 2],
+                  num_heads=4, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
+                  drop_path_rate=0., hybtrid_backbone=None, norm_layer=nn.LayerNorm):
+    super(AttnDecoder, self).__init__()
+    self.ch = embed_dim
+    self.embed_dim = embed_dim
+    self.sample_length= sample_length
+    self.levels = len(depths)
 
+    #self.patch_embed = nn.Conv1d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size, padding=0)
+    
+    #self.l1 = nn.Linear(latent_dim, (self.sample_length) * self.embed_dim)
+    self.pos_embed = [nn.Parameter(torch.zeros(1, int(self.sample_length//(4**(len(depths)-1-i))), embed_dim//(4**i))) for i in range(len(depths))]
+
+    is_mask = True
+    dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depths[0])] # stochastic depth decay rule
+
+    self.blocks = nn.ModuleList([
+                    Block(dim=embed_dim, num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                          drop=drop_rate, attn_drop=drop_rate, drop_path=dpr[i], norm_layer=norm_layer)
+                    for i in range(depths[0])])
+
+    # List of sublists of blocks. Each sublist works in a specific scale.
+    self.upsample_blocks = nn.ModuleList([
+                    nn.ModuleList(
+                      #[Block(dim=embed_dim//(4**i), num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                      #drop_rate=drop_rate, attn_drop=drop_rate, drop_path=0, norm_layer=norm_layer)] +\
+                      [Block(dim=embed_dim//(4**i), num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
+                      drop=drop_rate, attn_drop=drop_rate, drop_path=0., norm_layer=norm_layer, is_mask=0) for _ in range(depth)]) for i, depth in enumerate(depths)])
+
+    for i in range(len(self.pos_embed)):
+      trunc_normal_(self.pos_embed[i], std=.02)
+                    
+    self.deconv = nn.Sequential(nn.Conv1d(self.embed_dim//(4), 1, 1, 1, 0))
+
+  def forward(self, x, epoch=0):
+    #x = self.patch_embed(x)
+    B = x.size()
+    #for index, block in enumerate(self.blocks):
+    #  x = block(x, epoch)
+    for index, block in enumerate(self.upsample_blocks):
+      x = x + self.pos_embed[index].to(x.get_device())
+      for b in block:
+        x = b(x, epoch)
+      if index != len(self.upsample_blocks)-1:
+        x, L = audio_upsample(x)
+      
+    #out = self.deconv(x.permute(0, 2, 1).view(-1, self.embed_dim//(4**self.levels), L)) 
+    out = x
+    return out
