@@ -452,7 +452,7 @@ def audio_upsample(x):
 def audio_downsample(x):
   B, L, C = x.size()
 
-  x = x.permute(0,2, 1)
+  x = x.permute(0, 2, 1)
   x = SampleUnshuffle(4)(x)
   B, C, L = x.size()
   x = x.permute(0, 2, 1)
@@ -460,11 +460,12 @@ def audio_downsample(x):
   return x, L
 
 if __name__ == '__main__':
-  test = torch.tensor([[[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11], [12, 13, 14, 15]]])
+  test = torch.randn(10, 10, 10)
+  test = torch.Tensor([[[0, 1, 2, 3], [4, 5, 6, 7], [8, 9, 10, 11], [12, 13, 14, 15]]])
   shuffle = SampleShuffle(2)(test)
   unshuffle = SampleUnshuffle(2)(shuffle)
   print(test, shuffle, unshuffle)
-  assert test == unshuffle
+  assert torch.all(test == unshuffle)
 
 
 

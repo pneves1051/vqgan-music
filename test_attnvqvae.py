@@ -50,14 +50,13 @@ v_num_chs = [v_hps['ch']*mult for mult in v_hps['ch_mult']]
 d_num_chs = [d_hps['ch']*mult for mult in d_hps['ch_mult']]
 
 # model creation
-vqvae = AttnVQVAE(v_hps['embed_dim'], v_hps['n_embed'], 1, 1, real.shape[-1], [2, 2]).to(device)
+vqvae = AttnVQVAE(v_hps['embed_dim'], v_hps['n_embed'], 1, 1, real.shape[-1], [1, 1, 1]).to(device)
 test = vqvae(real)
-print(test[0].shape)
+#print(test[0].shape)
 
 discriminator = AttnDiscriminator(embed_dim=v_hps['embed_dim'], 
                 sample_length=real.shape[1], patch_size=256, in_channels=1, num_classes=1, depth=3).to(device)
 test2 = discriminator(real)
-print(test2)
 
 '''
 discriminator = MultiDiscriminator(d_hps['in_ch'], d_num_chs, d_hps['stride'], 3, WINDOW_SIZE, CONT, n_classes=None).to(device)

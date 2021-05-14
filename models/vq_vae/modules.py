@@ -308,12 +308,12 @@ class AttnEncoder(nn.Module):
     #for index, block in enumerate(self.blocks):
     #  x = block(x, epoch)
     for index, block in enumerate(self.downsample_blocks):
+      if index != 0:
+        x, L = audio_downsample(x)
       x = x + self.pos_embed[index].to(x.get_device())
       for b in block:
         x = b(x, epoch)
-      if index != len(self.downsample_blocks)-1:
-        x, L = audio_downsample(x)
-      
+          
     out = x
     return out
 
@@ -360,12 +360,12 @@ class AttnDecoder(nn.Module):
     #for index, block in enumerate(self.blocks):
     #  x = block(x, epoch)
     for index, block in enumerate(self.upsample_blocks):
+      if index != 0:
+        x, L = audio_upsample(x)
       x = x + self.pos_embed[index].to(x.get_device())
       for b in block:
         x = b(x, epoch)
-      if index != len(self.upsample_blocks)-1:
-        x, L = audio_upsample(x)
-      
+
     #out = self.deconv(x.permute(0, 2, 1).view(-1, self.embed_dim//(4**self.levels), L)) 
     out = x
     return out
