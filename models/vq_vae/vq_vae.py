@@ -2,7 +2,7 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
-from models.vq_vae.modules import VQVAEEncoder, VQVAEDecoder, VectorQuantizer, AttnEncoder, AttnDecoder
+from models.vq_vae.modules import VQVAEEncoder, VQVAEDecoder, VectorQuantizer, AttnEncoder, AttnDecoder, ResBlock
 
 
 class VQVAE(nn.Module):
@@ -61,10 +61,13 @@ class VQVAE(nn.Module):
 
 
 class AttnVQVAE(nn.Module):
-  def __init__(self, embed_dim, n_embed, input_channels, output_channels, sample_length, depths):
+  def __init__(self, embed_dim, n_embed, input_channels, output_channels, sample_length, depths, pre_levels):
     super(AttnVQVAE, self).__init__()
     self.embed_dim = embed_dim
     self.n_embed = n_embed
+
+    dilations = [3**i for i in range(3)]
+    depth = 3
 
     kernel_size = 8
     stride=4
@@ -73,32 +76,51 @@ class AttnVQVAE(nn.Module):
     self.input_channels = input_channels
     self.output_channels = output_channels
 
-    self.first_conv = nn.Conv1d(in_channels=input_channels, out_channels=embed_dim//(4**(len(depths)-1)), kernel_size=1)
-
-    self.encoder = AttnEncoder(embed_dim, sample_length=sample_length, in_channels=input_channels, depths=depths)
-
+    self.first_conv = nn.Conv1d(input_channels, embed_dim//(4**(len(depths)-1)), 3, padding=1)
+    enc_res_list = []
+    for i in range(pre_levels):
+      enc_res_list.extend([nn.BatchNorm1d(embed_dim//(4**(len(depths)-1))),
+                           nn.ReLU(),
+                           nn.Conv1d(embed_dim//(4**(len(depths)-1)), embed_dim//(4**(len(depths)-1)), kernel_size, stride=stride, padding=padding),
+                           ResBlock(embed_dim//(4**(len(depths)-1)), dilations, depth)])
+    self.enc_res = nn.Sequential(*enc_res_list)
+    
+    self.encoder = AttnEncoder(embed_dim, sample_length=sample_length//(stride**pre_levels), in_channels=input_channels, depths=depths)
+    
     self.vector_quantizer = VectorQuantizer(embed_dim, n_embed)
     
-    self.decoder = AttnDecoder(embed_dim, sample_length=sample_length, in_channels=input_channels, depths=depths[::-1])
+    self.decoder = AttnDecoder(embed_dim, sample_length=sample_length//(stride**pre_levels), in_channels=input_channels, depths=depths[::-1])
 
-    self.last_conv = nn.Conv1d(embed_dim//(4**(len(depths)-1)), output_channels, 1, 1)
+    dec_res_list = []
+    for i in range(pre_levels):
+      dec_res_list.extend([ResBlock(embed_dim//(4**(len(depths)-1)), dilations, depth),
+                           nn.BatchNorm1d(embed_dim//(4**(len(depths)-1))),
+                           nn.ReLU(),
+                           nn.ConvTranspose1d(embed_dim//(4**(len(depths)-1)), embed_dim//(4**(len(depths)-1)), kernel_size, stride=stride, padding=padding)])
+    self.dec_res = nn.Sequential(*dec_res_list)
+    
+    self.last_conv = nn.Conv1d(embed_dim//(4**(len(depths)-1)), output_channels, 3, padding=1)
 
     self.tanh = nn.Tanh()
     
   # returns the vectors zq, ze and the indices
   def encode(self, inputs):
     #inputs_one_hot = F.one_hot(inputs, self.in_ch).permute(0, 2, 1).float()
-    x = self.first_conv(inputs).transpose(-1, -2)
+    x = self.first_conv(inputs)
+    x = self.enc_res(x).transpose(-1, -2)
 
     # input comes in format (batch, channels, len), so we have to transpose
     encoding = self.encoder(x)
     
     quant, codes, indices = self.vector_quantizer(encoding)
+    
+    # print(inputs.shape, quant.shape)
         
     return encoding, quant, codes, indices
 
   def decode(self, quant):
     reconstructed = self.decoder(quant).transpose(-1, -2)
+    reconstructed = self.dec_res(reconstructed)
     reconstructed = self.last_conv(reconstructed)
     reconstructed = self.tanh(reconstructed)
 

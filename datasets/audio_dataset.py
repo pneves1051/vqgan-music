@@ -1,4 +1,5 @@
 import random
+import traceback
 import os
 import pandas as pd
 import librosa
@@ -8,6 +9,7 @@ import numpy as np
 import torchaudio
 import torch
 import torch.nn.functional as F
+
 
 class AudioDatasetNoCond(torch.utils.data.IterableDataset):
   def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, shuffle=True, use_torch=True, extension='.wav', one_hot=False, mu_law=False):
@@ -115,6 +117,171 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
     #return self.get_batch(self.shuffled_file_list)
     #return self.read_dataset(self.shuffled_file_list, self.batch_size)
 
+
+class AudioDatasetNoCond(torch.utils.data.IterableDataset):
+  def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, shuffle=True, use_torch=True, extension='.wav', one_hot=False, mu_law=False, csv_path=None, downmix_augment=False, split='train'):
+    """
+    Args:
+      dataset_dir (string): dataset directory
+      sr: sample rate of the audio
+      window_size: number of samples of each item
+      hop_length: step size
+      batch_size: batch_size
+      use_torch: whether to use torchaudio or not
+    """
+    self.dataset_dir = dataset_dir
+    self.file_list = glob.glob(dataset_dir)
+    #print(self.file_list)
+    
+    self.sr = sr
+    self.window_size = int(2**(np.ceil(np.log2(sr*window_size))))
+    self.hop_len = int(2**(np.ceil(np.log2(sr*hop_len))))
+    self.batch_size = batch_size
+    self.shuffle = shuffle
+    self.use_torch = use_torch
+    self.extension = extension
+    self.one_hot = one_hot
+    self.mu_law = mu_law
+
+    if csv_path is not None:
+      self.csv = pd.read_csv(csv_path)#, delimiter='\t')
+      self.csv = self.csv.set_index('audio_filename')
+
+      self.classes = pd.unique(self.csv['canonical_composer']).tolist()
+          
+    else:
+      self.csv = None
+
+    self.downmix_augment = downmix_augment
+
+    self.split = split
+
+    self.start = 0
+    self.end = len(self.file_list)
+        
+  @property
+  def shuffled_file_list(self):
+    shuffled_list = self.file_list.copy()
+    random.shuffle(shuffled_list)
+    return shuffled_list
+  
+  def open_file(self, file):
+    # load file
+    if self.use_torch:
+      signal, orig_sr = torchaudio.load(file)
+      #signal = signal.type(torch.float16)
+    else:
+      signal, orig_sr = librosa.load(file, sr=self.sr, mono=False)
+      signal = torch.Tensor(signal)
+    if self.sr != orig_sr:
+      signal = torchaudio.transforms.Resample(orig_sr, self.sr)(signal)
+    
+    return signal
+  
+  def downmix(self, signal):
+    if signal.shape[0] == 2 and self.downmix_augment:
+      d = torch.rand(1).item()
+      signal = (d*signal[0] + (1-d)*signal[1]).unsqueeze(0)
+    else: 
+      signal = signal.mean(0, keepdim=True)
+    return signal
+
+  def process_signal(self, signal):
+     # normalization
+    signal = signal - signal.mean()
+    signal = signal/signal.abs().max()   
+    if self.mu_law:
+      signal = 2*((torchaudio.transforms.MuLawEncoding(256)(signal) + 1)/256.) -1.
+
+    assert not torch.any(signal.abs() > 1.)
+
+    if self.one_hot:
+      signal = torchaudio.transforms.MuLawEncoding(256)(signal)
+      signal = F.one_hot(signal)[0].transpose(-1,-2)
+    
+    return signal
+
+  def slice_signal(self, signal):
+    split_signal = torch.split(signal, self.window_size, dim=-1)
+    split_signal = split_signal[:signal.shape[-1]//self.window_size]
+    #if split_signal[-1].shape[-1] < self.window_size:
+    #  split_signal = split_signal[:-1]
+    sliced_signal = torch.stack(split_signal)
+    if self.shuffle: 
+      sliced_signal = sliced_signal[torch.randperm(len(sliced_signal))]
+    return sliced_signal
+  
+  def create_batch(self, audio, ids, conditions= None):
+    if self.shuffle:
+      shuffled_inputs = list(zip(ids, audio))
+      random.shuffle(shuffled_inputs)
+      ids, audio = zip(*shuffled_inputs)
+
+    batch = {'ids': [], 'inputs': [], 'conditions': None}
+    batch['ids'] = torch.stack(ids)
+    batch['inputs'] =  torch.stack(audio)
+    batch['conditions'] = torch.stack(conditions) if conditions is not None else None
+
+    return batch
+
+  def read_dataset(self, file_list, batch_size):
+    shuffled_list = file_list.copy()
+    if self.shuffle:
+      random.shuffle(shuffled_list)    
+    
+    audio=[]
+    ids = []
+    conds = []
+    for file in shuffled_list:
+      try:
+        id, ext = os.path.splitext(os.path.basename(str(file)))
+        folder = os.path.basename(os.path.dirname(file))
+        if id != '' and ext == self.extension and self.split == self.csv.loc[folder + '/' + id + self.extension, 'split']:
+          signal = self.open_file(file)
+            
+          cond = self.classes.index(self.csv.loc[folder + '/' + id + self.extension, 'canonical_composer'])
+          
+          if torch.any(signal != 0.):
+            assert len(signal.shape) == 2
+            signal = self.downmix(signal)
+
+            signal = self.process_signal(signal)
+            sliced_signal = self.slice_signal(signal)
+            for s in sliced_signal:
+              try:
+                ids.append(torch.Tensor([int(id)]))
+              except:
+                ids.append(torch.Tensor([self.file_list.index(file)]))
+              audio.append(s)
+              conds.append(torch.Tensor([int(cond)]))
+
+              if len(audio) >= self.batch_size:
+                batch = self.create_batch(audio, ids, conds)
+                ids = []
+                audio = []
+                conds = []
+                yield batch      
+
+      except RuntimeError as error:
+        traceback.print_exc()
+
+  def __iter__(self):
+    worker_info = torch.utils.data.get_worker_info()
+    if worker_info is None:
+      iter_start = self.start
+      iter_end = self.end
+    else:
+      # divide carga de trabalho
+      per_worker = int(math.ceil((self.end-self.start)/ float(worker_info.num_workers)))
+      worker_id = worker_info.id
+      iter_start = self.start + worker_id * per_worker
+      iter_end = min(iter_start + per_worker, self.end)
+    return self.read_dataset(self.file_list[iter_start: iter_end],self.batch_size)
+    #return self.get_streams()
+    #return self.get_batch(self.shuffled_file_list)
+    #return self.read_dataset(self.shuffled_file_list, self.batch_size)
+
+
 class AudioDataset(torch.utils.data.IterableDataset):
   def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size):
     """
@@ -137,8 +304,8 @@ class AudioDataset(torch.utils.data.IterableDataset):
     self.conditions = conditions_df.to_numpy()
     '''
     self.sr = sr
-    self.window_size = int(2**(np.ceil(np.log2(SAMPLE_RATE*window_size))))
-    self.hop_len = int(2**(np.ceil(np.log2(SAMPLE_RATE*hop_len))))
+    self.window_size = int(2**(np.ceil(np.log2(sr*window_size))))
+    self.hop_len = int(2**(np.ceil(np.log2(sr*hop_len))))
     self.batch_size = batch_size
 
     self.start = 0
@@ -211,6 +378,7 @@ class AudioDataset(torch.utils.data.IterableDataset):
     #return self.get_streams()
     #return self.get_batch(self.shuffled_file_list)
     #return self.read_dataset(self.shuffled_file_list, self.batch_size)
+
 
     
 class AudioDataset2(torch.utils.data.IterableDataset):

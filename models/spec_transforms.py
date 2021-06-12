@@ -2,6 +2,7 @@ import torch
 import torch.nn.functional as F
 import numpy as np
 import torchaudio
+import librosa
 
 def inst_freq_np(phase):
   un_phase = np.unwrap(phase, axis=1)
@@ -145,25 +146,28 @@ def invert_mel_np(mel_spec, n_fft, hop_length):
   inv_stft = librosa.istft(stft, hop_length=hop_length)
   return inv_stft, stft
 
-### TORCH ###
+############################### TORCH ###
 
 pi = torch.acos(torch.zeros(1)).item()
 
-def stft(input, n_fft=1024, hop_length=256):
+def stft(input, n_fft=1024, hop_length=120, window_size=600):
   stft = torch.stft(input, n_fft=n_fft, hop_length=hop_length,
-          window=torch.hann_window(n_fft, device=input.device),
+          win_length=window_size, window=torch.hann_window(window_size, device=input.device),
            return_complex=True)
   stft = torch.view_as_real(stft)
   return stft
   
-def spec(x, n_fft=1024, hop_length=256):
+
+def spec(x, n_fft=1024, hop_length=120, window_size=600):
   #print(torch.linalg.norm(stft, ord=2, dim=-1) == torch.norm(stft, p=2, dim=-1))
-  spec = torch.linalg.norm(stft(x, n_fft, hop_length), ord=2, dim=-1)
+  spec = torch.linalg.norm(stft(x, n_fft, hop_length=hop_length, window_size=window_size), ord=2, dim=-1)
   return spec
   #return torch.norm(stft, ord=2, dim=-1)
 
+
 def norm(x):
   return (x.view(x.shape[0], -1)**2).sum(dim=-1).sqrt()
+
 
 def squeeze(x):
   if len(x.shape) == 3:
@@ -171,7 +175,8 @@ def squeeze(x):
     x = torch.mean(x, 1)
   if len(x.shape) != 2:
     raise ValueError(f'Unknown input shape {x.shape}')
-  return x
+  return x 
+
 
 def diff(inputs, dim=-1):
   size = inputs.shape
@@ -179,6 +184,7 @@ def diff(inputs, dim=-1):
   slice_front = torch.narrow(inputs, dim, 1, size[dim]-1) 
   diffs = slice_front - slice_back
   return diffs
+
 
 def unwrap(inputs, dim=-1):
   diffs = diff(phases, dim=dim)
@@ -193,6 +199,7 @@ def unwrap(inputs, dim=-1):
   unwrapped = phases + cumsums
   return unwrapped                         
 
+
 def inst_freq(phase):
   un_phase = unwrap(phase, axis=1)
   un_phase_diff = diff(un_phase, axis=1)
@@ -200,15 +207,19 @@ def inst_freq(phase):
 
   return i_freq/np.pi
 
+
 def inv_inst_freq(i_freq):
   i_freq_inv = torch.cumsum(i_freq * np.pi, dim=1)
   return i_freq_inv
 
+
 def exp_s(x):
   return torch.exp(x) - 1e-10
 
+
 def log_s(x):
   return torch.log(x + 1e-10)
+
 
 def stft_log(x):
   mag = x[0]
@@ -216,11 +227,13 @@ def stft_log(x):
   mlog = log_s(mag)
   return torch.stack([mlog, phase], dim=1)
 
+
 def stft_exp(x):
   mag = x[0]
   phase = x[1]
   mexp = exp_s(mag)
   return torch.stack([mexp, phase])
+
 
 def normalize(x, min, max, clip = False):
   norm_x = x
@@ -229,9 +242,11 @@ def normalize(x, min, max, clip = False):
   norm_x = 2*(norm_x - min)/(max-min) - 1
   return norm_x
 
+
 def denormalize(x, min, max):
   norm_x = (x+1)*(max-min)/2 + min
   return norm_x
+
 
 def create_stft(signal, n_fft, hop_length):
   stft = torch.stft(signal, n_fft=n_fft, hop_length=hop_length, center=True, return_comples=True)
@@ -259,6 +274,7 @@ def create_stft(signal, n_fft, hop_length):
   spec = spec[:, :, :-1, :-1]
   return spec
 
+
 def invert_stft(spec, hop_length):
   spec = F.pad(spec, (0, 1, 0, 1), mode='mean')
   log_mag, inst_f = spec[:, 0], spec[:, 1]
@@ -274,6 +290,7 @@ def invert_stft(spec, hop_length):
  
   inv_stft = torch.istft(stft, hop_length=hop_length)
   return inv_stft, stft
+
 
 def create_mel(signal, n_fft, hop_length, sample_rate=44100):
   stft = torch.stft(signal, n_fft=n_fft, hop_length=hop_length, center=True)
@@ -309,6 +326,7 @@ def create_mel(signal, n_fft, hop_length, sample_rate=44100):
   mel_spec = mel_spec[:, :, :, :-1]
   #print(mel_spec.shape)
   return mel_spec
+
 
 def invert_mel(mel_spec, n_fft, hop_length, sample_rate=44100):
   mel_spec = torch.pad(mel_spec, (0, 1), mode='reflect')

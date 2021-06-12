@@ -9,25 +9,34 @@ from models.vq_vae.attention import Block, audio_upsample, SelfAttn
 from utils.utils import trunc_normal_
 
 
+class WNConv1d(nn.Module):
+  def __init__(self, *args, **kwargs):
+    super(WNConv1d, self).__init__()
+    self.conv = nn.utils.weight_norm(nn.Conv1d(*args, **kwargs))
+
+  def forward(self, x):
+    return self.conv(x)
+
+
 class ModuleDiscriminator(nn.Module):
   def __init__(self, in_ch, num_chs, stride, window_size, cont):
     super(ModuleDiscriminator, self).__init__()
     shuffle_n = 0
  
-    self.pre = nn.Sequential(nn.Conv1d(in_ch, num_chs[0], 9, 
+    self.pre = nn.Sequential(WNConv1d(in_ch, num_chs[0], 9, 
                                       stride=1, padding=4),
                               nn.LeakyReLU(0.2))
     
     module_list = []
     for i in range(1, len(num_chs)):
-      module_list.append(nn.Sequential(nn.Conv1d(num_chs[i-1], num_chs[i],
+      module_list.append(nn.Sequential(WNConv1d(num_chs[i-1], num_chs[i],
                                                                       kernel_size=stride * 10 + 1,
                                                                       stride=stride,
                                                                       padding=stride * 5,
                                                                       groups=num_chs[i-1] // 4),                       
                         nn.LeakyReLU(0.2)))
     
-    module_list.append(nn.Conv1d(num_chs[-1], 1, kernel_size=3, stride=1, padding=1))
+    module_list.append(WNConv1d(num_chs[-1], 1, kernel_size=3, stride=1, padding=1))
     
     self.discriminator = nn.ModuleList(module_list)
 
@@ -92,6 +101,7 @@ class MultiDiscriminator(nn.Module):
       results.append(disc(h))
       
     return results  # (feat, score), (feat, score), ...
+
 
 ###################ATTN(Trnasgan)
 
