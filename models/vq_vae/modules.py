@@ -5,8 +5,7 @@ import torch.nn.functional as F
 from models.vq_vae.attention import Block, audio_upsample, audio_downsample, SelfAttn
 from utils.utils import trunc_normal_
 
-#https://github.com/rosinality/vq-vae-2-pytorch/blob/master/vqvae.py
-
+# Adapted from https://github.com/rosinality/vq-vae-2-pytorch/blob/master/vqvae.py
 class VectorQuantizer(nn.Module):
   def __init__(self, embed_dim, n_embed, decay=0.99, eps=1e-5, threshold=0.0):
     """
