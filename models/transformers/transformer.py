@@ -60,7 +60,8 @@ class Transformer(nn.Module):
     super(Transformer, self).__init__()
     self.model_type = 'Transformer'
     self.embed_size = embed_size
-          
+
+    self.cond=cond
     self.src_mask = None
     self.pos_emb = nn.Embedding(max_len, embed_size)
     
@@ -93,7 +94,8 @@ class Transformer(nn.Module):
     x = self.embedding(inputs)    
     
     if cond is not None: 
-
+      if self.cond=='discrete':
+        cond = cond.long()
       cond_emb = self.cond_embedding(cond) 
       x = torch.cat([cond_emb, x], dim=1)
       N, seq_len,_ = x.shape

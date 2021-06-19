@@ -11,8 +11,8 @@ dataset:
 model:
     vqgan:
         vqvae:
-            embed_dim: 64
-            n_embed: 256
+            embed_dim: 16
+            n_embed: 32
             in_ch: 1
             out_ch: 1 
             ch: 16

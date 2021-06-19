@@ -5,8 +5,10 @@ import torch.nn.functional as F
 from models.vq_vae.attention import Block, audio_upsample, audio_downsample, SelfAttn
 from utils.utils import trunc_normal_
 
+#https://github.com/rosinality/vq-vae-2-pytorch/blob/master/vqvae.py
+
 class VectorQuantizer(nn.Module):
-  def __init__(self, embed_dim, n_embed, decay=0.99, eps=1e-5):
+  def __init__(self, embed_dim, n_embed, decay=0.99, eps=1e-5, threshold=0.0):
     """
     Args:
       embed_dim: dimensionality of the tensors in the quantized space.
@@ -27,6 +29,7 @@ class VectorQuantizer(nn.Module):
     self.register_buffer("cluster_size", torch.zeros(n_embed))
     self.register_buffer("embed_avg", embed.clone())
     
+    self.threshold = threshold
     #emb = torch.empty(embed_dim, n_embed)
     #emb.data.uniform_(-1/n_embed, 1/n_embed)
     #torch.nn.init.xavier_uniform_(emb)
@@ -71,23 +74,40 @@ class VectorQuantizer(nn.Module):
     # (batch, len, embed_dim)
     quantized = self.quantize(encoding_indices)
 
+    # EMA and restart
     if self.training:
       # find number of times each code occurred
       # (n_embed,)
       encodings_sum = encodings.sum(0)
-      # dn
+      # each aij is the sum of all positions i of each element(vector)
+      #  in the input to which codebook element j was the closest
+      # each column j is the sum of all vectors in the input that where
+      # closest to codebook element j 
       # (embed_dim, batch*len)@(batch*len, n_embed) -> (embed_dim, n_embed)
+      # 
       embed_sum = flat_inputs.transpose(0, 1) @ encodings
 
+      # EMA statistics of number of times each code occurred
       self.cluster_size.data.mul_(self.decay).add_(
         encodings_sum, alpha=1-self.decay
-      )
-      # calculate EMA
-      self.embed_avg.data.mul_(self.decay).add_(embed_sum, alpha=1 - self.decay)
+      )      
+       
+      # check if usage falls below threshold
+      usage = (self.cluster_size > self.threshold).float().unsqueeze(1)
+      # EMA vectors below threshold to random ones in encoding 
+      rand_inp = flat_inputs[torch.randperm(flat_inputs.shape[0])][:self.n_embed]
+      
+      # calculate EMA and apply random restart
+      self.embed_avg.data.mul_(self.decay).add_(embed_sum, alpha=1 - self.decay) \
+        + ((1-usage)*rand_inp).T
+
       n = self.cluster_size.sum()
+      # cluster size scaled
       cluster_size = (
         (self.cluster_size + self.eps) / (n + self.n_embed * self.eps) * n
       )
+     
+      # So all vectors stay in same scale
       embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
       self.embed.data.copy_(embed_normalized)
 
@@ -369,3 +389,4 @@ class AttnDecoder(nn.Module):
     #out = self.deconv(x.permute(0, 2, 1).view(-1, self.embed_dim//(4**self.levels), L)) 
     out = x
     return out
+

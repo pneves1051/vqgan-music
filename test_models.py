@@ -12,6 +12,7 @@ else:
     torchaudio.set_audio_backend('sox_io')
 
 from datasets.audio_dataset import DummyDataset
+from models.vq_vae.modules import VectorQuantizer
 from models.vq_vae.vq_vae import VQVAE
 from models.discriminator import MultiDiscriminator
 from utils.vqvae_trainer import VQVAETrainer
@@ -25,6 +26,15 @@ from utils.augmentations import TimeShift, Gain, Transforms
 
 device = torch.device("cuda:0" if torch.cuda.is_available() else "cpu")
 print(torch.__version__, device)
+
+# Test VQ
+rand_data = torch.randn(32, 16, 8)
+test_vq = VectorQuantizer(embed_dim=8, n_embed=10, decay=0.99, eps=1e-5, threshold=0.0)
+for _ in range(10):
+    x = test_vq(rand_data)
+    #print(test_vq.embed)
+    print(test_vq.cluster_size)
+
 
 #os.chdir('VQ_GAN_music')
 with open(r'./config/test.yaml') as file:
@@ -65,6 +75,7 @@ tr_dataloader = dataloader = torch.utils.data.DataLoader(tr_dataset, batch_size=
 tr_data = next(iter(tr_dataloader))
 print(tr_data)
 
+'''
 tr_hps = hps['model']['transformer']
 tr_vocab_size = tr_hps['vocab_size']
 tr_d_model = tr_hps['d_model']
@@ -82,3 +93,4 @@ transformer_trainer.train(10, 'checkpoint_dir', log_interval=1)
 
 generated = generate(real, None, vqvae, transformer, WINDOW_SIZE, WINDOW_SIZE, CONT, 1, device)
 print(generated.shape)
+'''

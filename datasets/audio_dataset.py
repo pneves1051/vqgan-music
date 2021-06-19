@@ -118,7 +118,7 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
     #return self.read_dataset(self.shuffled_file_list, self.batch_size)
 
 
-class AudioDatasetNoCond(torch.utils.data.IterableDataset):
+class AudioDatasetCond(torch.utils.data.IterableDataset):
   def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size, shuffle=True, use_torch=True, extension='.wav', one_hot=False, mu_law=False, csv_path=None, downmix_augment=False, split='train'):
     """
     Args:
@@ -211,16 +211,16 @@ class AudioDatasetNoCond(torch.utils.data.IterableDataset):
       sliced_signal = sliced_signal[torch.randperm(len(sliced_signal))]
     return sliced_signal
   
-  def create_batch(self, audio, ids, conditions= None):
+  def create_batch(self, audio, ids, conditions):
     if self.shuffle:
-      shuffled_inputs = list(zip(ids, audio))
+      shuffled_inputs = list(zip(ids, audio, conditions))
       random.shuffle(shuffled_inputs)
-      ids, audio = zip(*shuffled_inputs)
-
-    batch = {'ids': [], 'inputs': [], 'conditions': None}
+      ids, audio, conditions = zip(*shuffled_inputs)
+    
+    batch = {'ids': [], 'inputs': [], 'conditions': []}
     batch['ids'] = torch.stack(ids)
     batch['inputs'] =  torch.stack(audio)
-    batch['conditions'] = torch.stack(conditions) if conditions is not None else None
+    batch['conditions'] = torch.stack(conditions)
 
     return batch
 
