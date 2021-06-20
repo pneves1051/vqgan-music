@@ -6,7 +6,7 @@ from models.vq_vae.modules import VQVAEEncoder, VQVAEDecoder, VectorQuantizer, A
 
 
 class VQVAE(nn.Module):
-  def __init__(self, embed_dim, n_embed, in_ch, out_ch, num_chs, strides, depth, attn_indices):
+  def __init__(self, embed_dim, n_embed, in_ch, out_ch, num_chs, strides, depth, attn_indices, threshold = 0.0):
     super(VQVAE, self).__init__()
     self.embed_dim = embed_dim
     self.n_embed = n_embed
@@ -19,7 +19,7 @@ class VQVAE(nn.Module):
 
     self.encoder = VQVAEEncoder(in_ch, embed_dim, num_chs, strides, depth, enc_attn_indices)
   
-    self.vector_quantizer = VectorQuantizer(embed_dim, n_embed)
+    self.vector_quantizer = VectorQuantizer(embed_dim, n_embed, threshold=threshold)
     
     self.decoder = VQVAEDecoder(embed_dim, out_ch, num_chs[::-1], strides[::-1], depth, dec_attn_indices)
 

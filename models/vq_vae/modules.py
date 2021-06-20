@@ -86,20 +86,20 @@ class VectorQuantizer(nn.Module):
       # 
       embed_sum = flat_inputs.transpose(0, 1) @ encodings
 
-      # EMA statistics of number of times each code occurred
-      self.cluster_size.data.mul_(self.decay).add_(
-        encodings_sum, alpha=1-self.decay
-      )      
-       
       # check if usage falls below threshold
       usage = (self.cluster_size > self.threshold).float().unsqueeze(1)
       # EMA vectors below threshold to random ones in encoding 
       rand_inp = flat_inputs[torch.randperm(flat_inputs.shape[0])][:self.n_embed]
-      
-      # calculate EMA and apply random restart
-      self.embed_avg.data.mul_(self.decay).add_(embed_sum, alpha=1 - self.decay) \
-        + ((1-usage)*rand_inp).T
 
+      #print(encodings_sum.shape, usage.shape)
+      # EMA statistics of number of times each code occurred accounting for new vectors
+      self.cluster_size.data.mul_(self.decay).add_(
+        encodings_sum + (1-usage.squeeze(1)), alpha=1-self.decay
+      )      
+        
+      # calculate EMA and apply random restart
+      self.embed_avg.data.mul_(self.decay).mul_(usage.T).add_(usage.T*embed_sum, alpha=1 - self.decay).add_(((1-usage)*rand_inp).T)      
+     
       n = self.cluster_size.sum()
       # cluster size scaled
       cluster_size = (
