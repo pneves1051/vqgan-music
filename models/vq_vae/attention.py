@@ -12,36 +12,52 @@ from torch.nn.modules.pixelshuffle import PixelShuffle
 
 from utils.utils import DropPath
 
+def Normalization(in_channels):
+    return nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
 
 class SelfAttn(nn.Module):
   def __init__(self, ch):
     super(SelfAttn, self).__init__()
     self.ch = ch
     
+    self.norm = Normalization(ch)
+    
     # Key
-    self.theta = nn.Conv1d(self.ch, self.ch//8, 1, bias = False)
-    self.phi = nn.Conv1d(self.ch, self.ch//8, 1, bias = False)
-    self.g = nn.Conv1d(self.ch, self.ch//2, 1, bias=False)
-    self.o = nn.Conv1d(self.ch//2, self.ch, 1, bias=False)
+    self.query = nn.Conv1d(self.ch, self.ch,#//8,
+                            1, bias = False)
+    self.key = nn.Conv1d(self.ch, self.ch,#//8,
+                            1, bias = False)
+    self.value = nn.Conv1d(self.ch, self.ch,#//2,
+                            1, bias=False)
+    self.out = nn.Conv1d(self.ch,#//2,
+                            self.ch, 1, bias=False)
     
     # Gain parameter
     self.gamma = nn.Parameter(torch.tensor(0.), requires_grad=True)
 
   def forward(self, x):
-
+    h = x
+    h = self.norm(x)
+  
     # query
-    theta = self.theta(x)
+    q = self.query(h)
     # key
-    phi = F.max_pool1d(self.phi(x), [2])
+    #k = F.max_pool1d(self.key(h), [2])
+    k = self.key(h)
     # value
-    g = F.max_pool1d(self.g(x), [2])
+    #v = F.max_pool1d(self.value(h), [2])
+    v = self.value(h)
 
+    b, c, l = q.shape
     # Matmul and softmax to get attention maps
-    beta = F.softmax(torch.bmm(theta.transpose(1,2), phi), -1)
+    w = torch.bmm(q.transpose(1,2), k)
+    w = w * (c ** (-0.5))
+    w = F.softmax(w, dim=-1)
     # Attention map times g path
-    o = self.o(torch.bmm(g, beta.transpose(1,2)))
+    out = self.out(torch.bmm(v, w.transpose(1,2)))
 
-    return self.gamma * o + x
+    return out + x
+    #return self.gamma * out + x
 
 ######https://github.com/lucidrains/perceiver-pytorch
 ''' 

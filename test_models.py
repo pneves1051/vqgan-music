@@ -33,7 +33,7 @@ torch.manual_seed(42)
 # Test VQ
 rand_data = torch.randn(32, 16, 8)
 
-test_vq = VectorQuantizer(embed_dim=8, n_embed=10, decay=0.99, eps=1e-5, threshold=0.0)
+test_vq = VectorQuantizer(embed_dim=8, n_embed=10, decay=0.99, eps=1e-5, threshold=1.0)
 for _ in range(10):
     x = test_vq(rand_data)
     #print(test_vq.embed)

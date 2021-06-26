@@ -7,7 +7,7 @@ from utils.utils import trunc_normal_
 
 # Adapted from https://github.com/rosinality/vq-vae-2-pytorch/blob/master/vqvae.py
 class VectorQuantizer(nn.Module):
-  def __init__(self, embed_dim, n_embed, decay=0.99, eps=1e-5, threshold=0.0):
+  def __init__(self, embed_dim, n_embed, decay=0.99, eps=1e-5, threshold=1.0):
     """
     Args:
       embed_dim: dimensionality of the tensors in the quantized space.
@@ -86,20 +86,23 @@ class VectorQuantizer(nn.Module):
       # 
       embed_sum = flat_inputs.transpose(0, 1) @ encodings
 
-      # check if usage falls below threshold
-      usage = (self.cluster_size > self.threshold).float().unsqueeze(1)
       # EMA vectors below threshold to random ones in encoding 
       rand_inp = flat_inputs[torch.randperm(flat_inputs.shape[0])][:self.n_embed]
 
       #print(encodings_sum.shape, usage.shape)
       # EMA statistics of number of times each code occurred accounting for new vectors
       self.cluster_size.data.mul_(self.decay).add_(
-        encodings_sum + (1-usage.squeeze(1)), alpha=1-self.decay
-      )      
+        encodings_sum, alpha=1-self.decay)      
+      # self.cluster_size.data.mul_(self.decay).add_(
+        # encodings_sum, alpha=1-self.decay) 
         
       # calculate EMA and apply random restart
-      self.embed_avg.data.mul_(self.decay).mul_(usage.T).add_(usage.T*embed_sum, alpha=1 - self.decay).add_(((1-usage)*rand_inp).T)      
-     
+      self.embed_avg.data.mul_(self.decay).add_(embed_sum, alpha=1 - self.decay)   
+      # self.embed_avg.data.mul_(self.decay).add_(embed_sum, alpha=1 - self.decay)     
+      
+      # check if usage falls below threshold
+      usage = (self.cluster_size >= self.threshold).float().unsqueeze(1)
+
       n = self.cluster_size.sum()
       # cluster size scaled
       cluster_size = (
@@ -108,7 +111,7 @@ class VectorQuantizer(nn.Module):
      
       # So all vectors stay in same scale
       embed_normalized = self.embed_avg / cluster_size.unsqueeze(0)
-      self.embed.data.copy_(embed_normalized)
+      self.embed.data.copy_(usage.T*embed_normalized + ((1-usage)*rand_inp).T)
 
     # before the detach
     codes = torch.cat([inputs, quantized], axis=-1)
@@ -123,15 +126,21 @@ class VectorQuantizer(nn.Module):
     """Returns embedding vector for a batch of indices"""
     return F.embedding(encoding_indices, self.embed.transpose(1,0))
 
+
+def Normalization(in_channels):
+    return nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
+
 class ResLayer(nn.Module):
   def __init__(self, chs, dilation, leaky=False):
     super(ResLayer, self).__init__()
     padding = dilation
     self.conv = nn.Sequential(
-                  nn.BatchNorm1d(chs),
+                  Normalization(chs),
+                  #nn.BatchNorm1d(chs),
                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                   nn.Conv1d(chs, chs, 3, dilation=dilation, padding=padding),
-                  nn.BatchNorm1d(chs),
+                  Normalization(chs),
+                  #nn.BatchNorm1d(chs),
                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                   nn.Conv1d(chs, chs, 1, padding=0),
                   )
@@ -183,7 +192,9 @@ class VQVAEEncoder(nn.Module):
     res_list = []
     for i in range(1, len(num_chs)):
       s = strides[i-1]
-      res_list.append(nn.ModuleList([nn.BatchNorm1d(num_chs[i-1]),
+      res_list.append(nn.ModuleList([
+                                    Normalization(num_chs[i-1]),
+                                    #nn.BatchNorm1d(num_chs[i-1]),
                                     nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                                     nn.Conv1d(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2),
                                     ResBlock(num_chs[i], dilations, depth, leaky)]))
@@ -191,16 +202,19 @@ class VQVAEEncoder(nn.Module):
     self.res_layers =  nn.ModuleList(res_list)
 
     # post processing layers
-    self.last_res = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
+    self.last_res = nn.Sequential(Normalization(num_chs[-1]),
+                                  #nn.BatchNorm1d(num_chs[-1]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                                   ResBlock(num_chs[-1], dilations, depth, leaky),
                                   SelfAttn(num_chs[-1]),
-                                  nn.BatchNorm1d(num_chs[-1]),
+                                  Normalization(num_chs[-1]),
+                                  #nn.BatchNorm1d(num_chs[-1]),                                  
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                                   ResBlock(num_chs[-1], dilations, depth, leaky))
                                     
     
-    self.last_conv = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
+    self.last_conv = nn.Sequential(Normalization(num_chs[-1]),
+                              #nn.BatchNorm1d(num_chs[-1]),
                               nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                               nn.Conv1d(num_chs[-1], out_ch, 3, padding=1))
     
@@ -238,11 +252,13 @@ class VQVAEDecoder(nn.Module):
 
     self.first_conv = nn.Conv1d(in_ch, num_chs[0], 3, padding=1)
 
-    self.first_res = nn.Sequential(nn.BatchNorm1d(num_chs[0]),
+    self.first_res = nn.Sequential(Normalization(num_chs[0]),
+                                  #nn.BatchNorm1d(num_chs[0]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                                   ResBlock(num_chs[0], dilations, depth, leaky),
                                   SelfAttn(num_chs[0]),
-                                  nn.BatchNorm1d(num_chs[0]),
+                                  Normalization(num_chs[0]),
+                                  #nn.BatchNorm1d(num_chs[0]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                                   ResBlock(num_chs[0], dilations, depth, leaky))
 
@@ -250,14 +266,16 @@ class VQVAEDecoder(nn.Module):
     for i in range(1, len(num_chs)):
       s = strides[i-1]
       res_list.append(nn.ModuleList([ResBlock(num_chs[i-1], dilations, depth, leaky),
-                      nn.BatchNorm1d(num_chs[i-1]),
+                      Normalization(num_chs[i-1]),
+                      #nn.BatchNorm1d(num_chs[i-1]),
                       nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                       nn.ConvTranspose1d(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2)]))
 
     self.res_layers =  nn.ModuleList(res_list)
 
     # post processing layers
-    self.last_act = nn.Sequential(nn.BatchNorm1d(num_chs[-1]),
+    self.last_act = nn.Sequential(Normalization(num_chs[-1]),
+                                  #nn.BatchNorm1d(num_chs[-1]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU())
 
     self.last_conv = nn.Conv1d(num_chs[-1], out_ch, 3, padding=1)
