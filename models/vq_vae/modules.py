@@ -144,11 +144,11 @@ class WSConv1d(nn.Conv1d):
         return F.conv1d(x, weight, self.bias, self.stride,
                         self.padding, self.dilation, self.groups)
 
-class WSConvTranspose1d(nn.Conv1d):
+class WSConvTranspose1d(nn.ConvTranspose1d):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True):
-        super(WSConv1d, self).__init__(in_channels, out_channels, kernel_size, stride,
+        super(WSConvTranspose1d, self).__init__(in_channels, out_channels, kernel_size, stride,
                  padding, dilation, groups, bias)
 
     def forward(self, x):
@@ -244,7 +244,7 @@ class VQVAEEncoder(nn.Module):
                                   #nn.BatchNorm1d(num_chs[-1]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                                   ResBlock(num_chs[-1], dilations, depth, leaky, normalization=normalization, conv=conv),
-                                  SelfAttn(num_chs[-1], normalization=normalization, conv=conv),
+                                  SelfAttn(num_chs[-1], normalization=normalization),
                                   normalization(num_chs[-1]),
                                   #nn.BatchNorm1d(num_chs[-1]),                                  
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
@@ -294,7 +294,7 @@ class VQVAEDecoder(nn.Module):
                                   #nn.BatchNorm1d(num_chs[0]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                                   ResBlock(num_chs[0], dilations, depth, leaky, normalization=normalization, conv=conv),
-                                  SelfAttn(num_chs[0], normalization=normalization, conv=conv),
+                                  SelfAttn(num_chs[0], normalization=normalization),
                                   normalization(num_chs[0]),
                                   #nn.BatchNorm1d(num_chs[0]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
