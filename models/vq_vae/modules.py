@@ -127,22 +127,59 @@ class VectorQuantizer(nn.Module):
     return F.embedding(encoding_indices, self.embed.transpose(1,0))
 
 
+class WSConv1d(nn.Conv1d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+                 padding=0, dilation=1, groups=1, bias=True):
+        super(WSConv1d, self).__init__(in_channels, out_channels, kernel_size, stride,
+                 padding, dilation, groups, bias)
+
+    def forward(self, x):
+        weight = self.weight
+        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
+                                  keepdim=True)
+        weight = weight - weight_mean
+        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1) + 1e-5
+        weight = weight / std.expand_as(weight)
+        return F.conv1d(x, weight, self.bias, self.stride,
+                        self.padding, self.dilation, self.groups)
+
+class WSConvTranspose1d(nn.Conv1d):
+
+    def __init__(self, in_channels, out_channels, kernel_size, stride=1,
+                 padding=0, dilation=1, groups=1, bias=True):
+        super(WSConv1d, self).__init__(in_channels, out_channels, kernel_size, stride,
+                 padding, dilation, groups, bias)
+
+    def forward(self, x):
+        weight = self.weight
+        weight_mean = weight.mean(dim=1, keepdim=True).mean(dim=2,
+                                  keepdim=True)
+        weight = weight - weight_mean
+        std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1) + 1e-5
+        weight = weight / std.expand_as(weight)
+        return F.conv_transpose1d(x, weight, self.bias, self.stride,
+                        self.padding, self.dilation, self.groups)
+
+
 def Normalization(in_channels):
     return nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
 
 class ResLayer(nn.Module):
-  def __init__(self, chs, dilation, leaky=False, normalization=Normalization):
+  def __init__(self, chs, dilation, leaky=False, normalization=Normalization, conv=WSConv1d):
     super(ResLayer, self).__init__()
     padding = dilation
     self.conv = nn.Sequential(
                   normalization(chs),
                   #nn.BatchNorm1d(chs),
                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                  nn.Conv1d(chs, chs, 3, dilation=dilation, padding=padding),
+                  conv(chs, chs, 3, dilation=dilation, padding=padding),
+                  #nn.Conv1d(chs, chs, 3, dilation=dilation, padding=padding),
                   normalization(chs),
                   #nn.BatchNorm1d(chs),
                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                  nn.Conv1d(chs, chs, 1, padding=0),
+                  conv(chs, chs, 3, dilation=dilation, padding=padding)
+                  #nn.Conv1d(chs, chs, 1, padding=0)
                   )
            
   def forward(self, x):
@@ -167,16 +204,16 @@ class WNResLayer(nn.Module):
     return out
 
 class ResBlock(nn.Module):
-  def __init__(self, chs, dilations, depth, leaky=False, normalization = Normalization):
+  def __init__(self, chs, dilations, depth, leaky=False, normalization = Normalization, conv=WSConv1d):
     super(ResBlock, self).__init__()
-    self.res_block = nn.Sequential(*[ResLayer(chs, dilations[i], leaky, normalization=normalization) for i in range(depth)])
+    self.res_block = nn.Sequential(*[ResLayer(chs, dilations[i], leaky, normalization=normalization, conv=conv) for i in range(depth)])
 
   def forward(self, x):
     out = self.res_block(x)
     return out
 
 class VQVAEEncoder(nn.Module):
-  def __init__(self, in_ch, out_ch, num_chs, strides, depth, leaky=False, normalization=Normalization):
+  def __init__(self, in_ch, out_ch, num_chs, strides, depth, leaky=False, normalization=Normalization, conv=WSConv1d):
     super(VQVAEEncoder,self).__init__()
     dilations = [3**i for i in range(depth)]
 
@@ -187,7 +224,7 @@ class VQVAEEncoder(nn.Module):
     stride=4
     padding = (kernel_size-stride)//2
 
-    self.first_conv = nn.Conv1d(in_ch, num_chs[0], 3, padding=1)
+    self.first_conv = conv(in_ch, num_chs[0], 3, padding=1)#nn.Conv1d(in_ch, num_chs[0], 3, padding=1)
 
     res_list = []
     for i in range(1, len(num_chs)):
@@ -196,8 +233,9 @@ class VQVAEEncoder(nn.Module):
                                     normalization(num_chs[i-1]),
                                     #nn.BatchNorm1d(num_chs[i-1]),
                                     nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                    nn.Conv1d(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2),
-                                    ResBlock(num_chs[i], dilations, depth, leaky, normalization=normalization)]))
+                                    conv(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2),
+                                    #nn.Conv1d(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2),
+                                    ResBlock(num_chs[i], dilations, depth, leaky, normalization=normalization, conv=conv)]))
 
     self.res_layers =  nn.ModuleList(res_list)
 
@@ -205,12 +243,12 @@ class VQVAEEncoder(nn.Module):
     self.last_res = nn.Sequential(normalization(num_chs[-1]),
                                   #nn.BatchNorm1d(num_chs[-1]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                  ResBlock(num_chs[-1], dilations, depth, leaky, normalization=normalization),
-                                  SelfAttn(num_chs[-1], normalization=normalization),
+                                  ResBlock(num_chs[-1], dilations, depth, leaky, normalization=normalization, conv=conv),
+                                  SelfAttn(num_chs[-1], normalization=normalization, conv=conv),
                                   normalization(num_chs[-1]),
                                   #nn.BatchNorm1d(num_chs[-1]),                                  
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                  ResBlock(num_chs[-1], dilations, depth, leaky, normalization=normalization))
+                                  ResBlock(num_chs[-1], dilations, depth, leaky, normalization=normalization, conv=conv))
                                     
     
     self.last_conv = nn.Sequential(normalization(num_chs[-1]),
@@ -240,7 +278,7 @@ class VQVAEEncoder(nn.Module):
     return out
 
 class VQVAEDecoder(nn.Module):
-  def __init__(self, in_ch, out_ch, num_chs, strides, depth, leaky=False, normalization=Normalization):
+  def __init__(self, in_ch, out_ch, num_chs, strides, depth, leaky=False, normalization=Normalization, conv=WSConv1d, conv_t=WSConvTranspose1d):
     super(VQVAEDecoder,self).__init__()
     dilations = [3**i for i in range(depth)]
     dilations = dilations[::-1]
@@ -250,26 +288,27 @@ class VQVAEDecoder(nn.Module):
     output_padding = 0
     padding = (kernel_size + output_padding-stride)//2
 
-    self.first_conv = nn.Conv1d(in_ch, num_chs[0], 3, padding=1)
+    self.first_conv = conv(in_ch, num_chs[0], 3, padding=1)#nn.Conv1d(in_ch, num_chs[0], 3, padding=1)
 
     self.first_res = nn.Sequential(normalization(num_chs[0]),
                                   #nn.BatchNorm1d(num_chs[0]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                  ResBlock(num_chs[0], dilations, depth, leaky, normalization=normalization),
-                                  SelfAttn(num_chs[0], normalization=normalization),
+                                  ResBlock(num_chs[0], dilations, depth, leaky, normalization=normalization, conv=conv),
+                                  SelfAttn(num_chs[0], normalization=normalization, conv=conv),
                                   normalization(num_chs[0]),
                                   #nn.BatchNorm1d(num_chs[0]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                  ResBlock(num_chs[0], dilations, depth, leaky, normalization=normalization))
+                                  ResBlock(num_chs[0], dilations, depth, leaky, normalization=normalization, conv=conv))
 
     res_list = []
     for i in range(1, len(num_chs)):
       s = strides[i-1]
-      res_list.append(nn.ModuleList([ResBlock(num_chs[i-1], dilations, depth, leaky, normalization=normalization),
+      res_list.append(nn.ModuleList([ResBlock(num_chs[i-1], dilations, depth, leaky, normalization=normalization, conv=conv),
                       normalization(num_chs[i-1]),
                       #nn.BatchNorm1d(num_chs[i-1]),
                       nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                      nn.ConvTranspose1d(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2)]))
+                      conv_t(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2)]))
+                      #nn.ConvTranspose1d(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2)]))
 
     self.res_layers =  nn.ModuleList(res_list)
 
