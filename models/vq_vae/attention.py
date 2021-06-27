@@ -16,11 +16,11 @@ def Normalization(in_channels):
     return nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
 
 class SelfAttn(nn.Module):
-  def __init__(self, ch):
+  def __init__(self, ch, normalization=Normalization):
     super(SelfAttn, self).__init__()
     self.ch = ch
     
-    self.norm = Normalization(ch)
+    self.norm = normalization(ch)
     
     # Key
     self.query = nn.Conv1d(self.ch, self.ch,#//8,

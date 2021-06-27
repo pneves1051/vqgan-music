@@ -131,15 +131,15 @@ def Normalization(in_channels):
     return nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
 
 class ResLayer(nn.Module):
-  def __init__(self, chs, dilation, leaky=False):
+  def __init__(self, chs, dilation, leaky=False, normalization=Normalization):
     super(ResLayer, self).__init__()
     padding = dilation
     self.conv = nn.Sequential(
-                  Normalization(chs),
+                  normalization(chs),
                   #nn.BatchNorm1d(chs),
                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                   nn.Conv1d(chs, chs, 3, dilation=dilation, padding=padding),
-                  Normalization(chs),
+                  normalization(chs),
                   #nn.BatchNorm1d(chs),
                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                   nn.Conv1d(chs, chs, 1, padding=0),
@@ -176,7 +176,7 @@ class ResBlock(nn.Module):
     return out
 
 class VQVAEEncoder(nn.Module):
-  def __init__(self, in_ch, out_ch, num_chs, strides, depth, attn_indices, leaky=False):
+  def __init__(self, in_ch, out_ch, num_chs, strides, depth, attn_indices, leaky=False, normalization=Normalization):
     super(VQVAEEncoder,self).__init__()
     dilations = [3**i for i in range(depth)]
 
@@ -193,27 +193,27 @@ class VQVAEEncoder(nn.Module):
     for i in range(1, len(num_chs)):
       s = strides[i-1]
       res_list.append(nn.ModuleList([
-                                    Normalization(num_chs[i-1]),
+                                    normalization(num_chs[i-1]),
                                     #nn.BatchNorm1d(num_chs[i-1]),
                                     nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                                     nn.Conv1d(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2),
-                                    ResBlock(num_chs[i], dilations, depth, leaky)]))
+                                    ResBlock(num_chs[i], dilations, depth, leaky, normalization=normalization)]))
 
     self.res_layers =  nn.ModuleList(res_list)
 
     # post processing layers
-    self.last_res = nn.Sequential(Normalization(num_chs[-1]),
+    self.last_res = nn.Sequential(normalization(num_chs[-1]),
                                   #nn.BatchNorm1d(num_chs[-1]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                  ResBlock(num_chs[-1], dilations, depth, leaky),
-                                  SelfAttn(num_chs[-1]),
-                                  Normalization(num_chs[-1]),
+                                  ResBlock(num_chs[-1], dilations, depth, leaky, normalization=normalization),
+                                  SelfAttn(num_chs[-1], normalization=normalization),
+                                  normalization(num_chs[-1]),
                                   #nn.BatchNorm1d(num_chs[-1]),                                  
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                  ResBlock(num_chs[-1], dilations, depth, leaky))
+                                  ResBlock(num_chs[-1], dilations, depth, leaky, normalization=normalization))
                                     
     
-    self.last_conv = nn.Sequential(Normalization(num_chs[-1]),
+    self.last_conv = nn.Sequential(normalization(num_chs[-1]),
                               #nn.BatchNorm1d(num_chs[-1]),
                               nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                               nn.Conv1d(num_chs[-1], out_ch, 3, padding=1))
@@ -240,7 +240,7 @@ class VQVAEEncoder(nn.Module):
     return out
 
 class VQVAEDecoder(nn.Module):
-  def __init__(self, in_ch, out_ch, num_chs, strides, depth, attn_indices, leaky=False):
+  def __init__(self, in_ch, out_ch, num_chs, strides, depth, attn_indices, leaky=False, normalization=Normalization):
     super(VQVAEDecoder,self).__init__()
     dilations = [3**i for i in range(depth)]
     dilations = dilations[::-1]
@@ -252,21 +252,21 @@ class VQVAEDecoder(nn.Module):
 
     self.first_conv = nn.Conv1d(in_ch, num_chs[0], 3, padding=1)
 
-    self.first_res = nn.Sequential(Normalization(num_chs[0]),
+    self.first_res = nn.Sequential(normalization(num_chs[0]),
                                   #nn.BatchNorm1d(num_chs[0]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                  ResBlock(num_chs[0], dilations, depth, leaky),
-                                  SelfAttn(num_chs[0]),
-                                  Normalization(num_chs[0]),
+                                  ResBlock(num_chs[0], dilations, depth, leaky, normalization=normalization),
+                                  SelfAttn(num_chs[0], normalization=normalization),
+                                  normalization(num_chs[0]),
                                   #nn.BatchNorm1d(num_chs[0]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
-                                  ResBlock(num_chs[0], dilations, depth, leaky))
+                                  ResBlock(num_chs[0], dilations, depth, leaky, normalization=normalization))
 
     res_list = []
     for i in range(1, len(num_chs)):
       s = strides[i-1]
-      res_list.append(nn.ModuleList([ResBlock(num_chs[i-1], dilations, depth, leaky),
-                      Normalization(num_chs[i-1]),
+      res_list.append(nn.ModuleList([ResBlock(num_chs[i-1], dilations, depth, leaky, normalization=normalization),
+                      normalization(num_chs[i-1]),
                       #nn.BatchNorm1d(num_chs[i-1]),
                       nn.LeakyReLU(0.2) if leaky else nn.ReLU(),
                       nn.ConvTranspose1d(num_chs[i-1], num_chs[i], s*2, stride=s, padding=s//2)]))
@@ -274,7 +274,7 @@ class VQVAEDecoder(nn.Module):
     self.res_layers =  nn.ModuleList(res_list)
 
     # post processing layers
-    self.last_act = nn.Sequential(Normalization(num_chs[-1]),
+    self.last_act = nn.Sequential(normalization(num_chs[-1]),
                                   #nn.BatchNorm1d(num_chs[-1]),
                                   nn.LeakyReLU(0.2) if leaky else nn.ReLU())
 
