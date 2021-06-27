@@ -167,16 +167,16 @@ class WNResLayer(nn.Module):
     return out
 
 class ResBlock(nn.Module):
-  def __init__(self, chs, dilations, depth, leaky=False):
+  def __init__(self, chs, dilations, depth, leaky=False, normalization = Normalization):
     super(ResBlock, self).__init__()
-    self.res_block = nn.Sequential(*[ResLayer(chs, dilations[i], leaky) for i in range(depth)])
+    self.res_block = nn.Sequential(*[ResLayer(chs, dilations[i], leaky, normalization=normalization) for i in range(depth)])
 
   def forward(self, x):
     out = self.res_block(x)
     return out
 
 class VQVAEEncoder(nn.Module):
-  def __init__(self, in_ch, out_ch, num_chs, strides, depth, attn_indices, leaky=False, normalization=Normalization):
+  def __init__(self, in_ch, out_ch, num_chs, strides, depth, leaky=False, normalization=Normalization):
     super(VQVAEEncoder,self).__init__()
     dilations = [3**i for i in range(depth)]
 
@@ -219,8 +219,8 @@ class VQVAEEncoder(nn.Module):
                               nn.Conv1d(num_chs[-1], out_ch, 3, padding=1))
     
     # Attention blocks
-    self.attn_indices = attn_indices
-    self.attn_modules = nn.ModuleList([SelfAttn(num_chs[f], 'relu') for f in self.attn_indices])
+    #self.attn_indices = attn_indices
+    #self.attn_modules = nn.ModuleList([SelfAttn(num_chs[f], 'relu') for f in self.attn_indices])
 
   
   def forward(self, x):
@@ -231,16 +231,16 @@ class VQVAEEncoder(nn.Module):
       x = module[1](x)
       x = module[2](x)
       x = module[3](x)
-      if i + 1 in self.attn_indices:
-        x = self.attn_modules[j](x)
-        j += 1
+      #if i + 1 in self.attn_indices:
+      #  x = self.attn_modules[j](x)
+      #  j += 1
 
     out = self.last_res(x)   
     out = self.last_conv(x)
     return out
 
 class VQVAEDecoder(nn.Module):
-  def __init__(self, in_ch, out_ch, num_chs, strides, depth, attn_indices, leaky=False, normalization=Normalization):
+  def __init__(self, in_ch, out_ch, num_chs, strides, depth, leaky=False, normalization=Normalization):
     super(VQVAEDecoder,self).__init__()
     dilations = [3**i for i in range(depth)]
     dilations = dilations[::-1]
@@ -280,8 +280,8 @@ class VQVAEDecoder(nn.Module):
 
     self.last_conv = nn.Conv1d(num_chs[-1], out_ch, 3, padding=1)
 
-    self.attn_indices = attn_indices
-    self.attn_modules = nn.ModuleList([SelfAttn(num_chs[f], 'relu') for f in self.attn_indices])  
+    #self.attn_indices = attn_indices
+    #self.attn_modules = nn.ModuleList([SelfAttn(num_chs[f], 'relu') for f in self.attn_indices])  
   
   
   def forward(self, x):
@@ -293,9 +293,9 @@ class VQVAEDecoder(nn.Module):
       x = module[1](x)
       x = module[2](x)
       x = module[3](x)
-      if i + 1  in self.attn_indices:
-        x = self.attn_modules[j](x)
-        j += 1
+      #if i + 1  in self.attn_indices:
+      #  x = self.attn_modules[j](x)
+      #  j += 1
        
     out = self.last_conv(self.last_act(x))
     return out

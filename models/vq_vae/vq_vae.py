@@ -17,11 +17,11 @@ class VQVAE(nn.Module):
     enc_attn_indices = []#attn_indices
     dec_attn_indices = []#[(len(num_chs)-1)-i for i in attn_indices]
 
-    self.encoder = VQVAEEncoder(in_ch, embed_dim, num_chs, strides, depth, enc_attn_indices, normalization=normalization)
+    self.encoder = VQVAEEncoder(in_ch, embed_dim, num_chs, strides, depth, normalization=normalization)
   
     self.vector_quantizer = VectorQuantizer(embed_dim, n_embed, threshold=threshold)
     
-    self.decoder = VQVAEDecoder(embed_dim, out_ch, num_chs[::-1], strides[::-1], depth, dec_attn_indices, normalization=normalization)
+    self.decoder = VQVAEDecoder(embed_dim, out_ch, num_chs[::-1], strides[::-1], depth, normalization=normalization)
 
     self.tanh = nn.Tanh()
     
