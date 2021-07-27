@@ -38,7 +38,7 @@ def mel_log_spectral_loss(real, fake, n_fft=1024, hop_length=120, window_size=60
   #spec_loss = norm(real_spec - fake_spec)
   real_spec = torch.clamp(real_spec, min=1e-4)
   fake_spec = torch.clamp(fake_spec, min=1e-4)
-  spec_loss = F.mse_loss(torch.log(fake_spec), torch.log(real_spec))# + F.mse_loss(fake_spec, real_spec) 
+  spec_loss = F.l1_loss(torch.log(fake_spec), torch.log(real_spec)) #+ F.mse_loss(fake_spec, real_spec) 
   return spec_loss
 
 
@@ -55,7 +55,7 @@ def mel_multispectral_loss(real, fake, n_fft_list=[2048, 1024, 512], hop_length_
   for n_fft, hop_length, window_size, n_mels in zip(n_fft_list, hop_length_list, window_size_list, n_mels_list):
     losses.append(mel_log_spectral_loss(real, fake, n_fft, hop_length, window_size, n_mels))
     
-  return sum(losses) /len(losses)
+  return sum(losses)/len(losses)
 
 
 def vqvae_loss(real, fake, codes, beta=0.25, spec_hp=1.0, mel=False):

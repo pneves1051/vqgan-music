@@ -50,7 +50,7 @@ HOP_LEN = int(2**(np.ceil(np.log2(hps['dataset']['hop_len']*SAMPLE_RATE))))
 CONT = 4**(len(hps['model']['vqgan']['vqvae']['ch_mult'])-1)
 
 # Dataset creation
-dataset = DummyDataset(SAMPLE_RATE, hps['dataset']['win_size'], one_hot=False, mu_law=True)
+dataset = DummyDataset(SAMPLE_RATE, hps['dataset']['win_size'], n_iter=10, one_hot=False, mu_law=False)
 dataloader = torch.utils.data.DataLoader(dataset, batch_size=None)
 real = next(iter(dataloader))['inputs'].to(device)
 

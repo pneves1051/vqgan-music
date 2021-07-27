@@ -128,7 +128,6 @@ class VectorQuantizer(nn.Module):
 
 
 class WSConv1d(nn.Conv1d):
-
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
                  padding=0, dilation=1, groups=1, bias=True):
         super(WSConv1d, self).__init__(in_channels, out_channels, kernel_size, stride,
@@ -144,12 +143,13 @@ class WSConv1d(nn.Conv1d):
         return F.conv1d(x, weight, self.bias, self.stride,
                         self.padding, self.dilation, self.groups)
 
+
 class WSConvTranspose1d(nn.ConvTranspose1d):
 
     def __init__(self, in_channels, out_channels, kernel_size, stride=1,
-                 padding=0, dilation=1, groups=1, bias=True):
+                 padding=0, output_padding=0, dilation=1, groups=1, bias=True):
         super(WSConvTranspose1d, self).__init__(in_channels, out_channels, kernel_size, stride,
-                 padding, dilation, groups, bias)
+                 padding, output_padding, groups, bias, dilation)
 
     def forward(self, x):
         weight = self.weight
@@ -159,14 +159,15 @@ class WSConvTranspose1d(nn.ConvTranspose1d):
         std = weight.view(weight.size(0), -1).std(dim=1).view(-1, 1, 1) + 1e-5
         weight = weight / std.expand_as(weight)
         return F.conv_transpose1d(x, weight, self.bias, self.stride,
-                        self.padding, self.dilation, self.groups)
+                        self.padding, self.output_padding, self.groups, self.dilation)
 
 
-def Normalization(in_channels):
+def GroupNorm(in_channels):
     return nn.GroupNorm(num_groups=32, num_channels=in_channels, eps=1e-6, affine=True)
 
+
 class ResLayer(nn.Module):
-  def __init__(self, chs, dilation, leaky=False, normalization=Normalization, conv=WSConv1d):
+  def __init__(self, chs, dilation, leaky=False, normalization=GroupNorm, conv=WSConv1d):
     super(ResLayer, self).__init__()
     padding = dilation
     self.conv = nn.Sequential(
@@ -204,7 +205,7 @@ class WNResLayer(nn.Module):
     return out
 
 class ResBlock(nn.Module):
-  def __init__(self, chs, dilations, depth, leaky=False, normalization = Normalization, conv=WSConv1d):
+  def __init__(self, chs, dilations, depth, leaky=False, normalization = GroupNorm, conv=WSConv1d):
     super(ResBlock, self).__init__()
     self.res_block = nn.Sequential(*[ResLayer(chs, dilations[i], leaky, normalization=normalization, conv=conv) for i in range(depth)])
 
@@ -213,7 +214,7 @@ class ResBlock(nn.Module):
     return out
 
 class VQVAEEncoder(nn.Module):
-  def __init__(self, in_ch, out_ch, num_chs, strides, depth, leaky=False, normalization=Normalization, conv=WSConv1d):
+  def __init__(self, in_ch, out_ch, num_chs, strides, depth, leaky=False, normalization=GroupNorm, conv=WSConv1d):
     super(VQVAEEncoder,self).__init__()
     dilations = [3**i for i in range(depth)]
 
@@ -278,7 +279,7 @@ class VQVAEEncoder(nn.Module):
     return out
 
 class VQVAEDecoder(nn.Module):
-  def __init__(self, in_ch, out_ch, num_chs, strides, depth, leaky=False, normalization=Normalization, conv=WSConv1d, conv_t=WSConvTranspose1d):
+  def __init__(self, in_ch, out_ch, num_chs, strides, depth, leaky=False, normalization=GroupNorm, conv=WSConv1d, conv_t=WSConvTranspose1d):
     super(VQVAEDecoder,self).__init__()
     dilations = [3**i for i in range(depth)]
     dilations = dilations[::-1]
@@ -337,112 +338,5 @@ class VQVAEDecoder(nn.Module):
       #  j += 1
        
     out = self.last_conv(self.last_act(x))
-    return out
-
-
-########ATTN########
-
-class AttnEncoder(nn.Module):
-  def __init__(self, embed_dim, sample_length, patch_size=256, in_channels=1, out_channels=512,  num_classes=10, depths=[2, 3, 3, 5],
-                  num_heads=4, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
-                  drop_path_rate=0., hybtrid_backbone=None, norm_layer=nn.LayerNorm):
-    super(AttnEncoder, self).__init__()
-    self.ch = embed_dim
-    self.embed_dim = embed_dim
-    self.sample_length = sample_length
-    self.levels = len(depths)
-
-    #self.patch_embed = nn.Conv1d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size, padding=0)
-    
-    #self.l1 = nn.Linear(latent_dim, (self.bottom_width) * self.embed_dim)
-    self.pos_embed = [nn.Parameter(torch.zeros(1, self.sample_length//(4**i), embed_dim//(4**(len(depths)-1-i)))) for i in range(len(depths))]
-    
-    is_mask = True
-    dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depths[0])] # stochastic depth decay rule
-
-    self.blocks = nn.ModuleList([
-                    Block(dim=embed_dim, num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                          drop=drop_rate, attn_drop=drop_rate, drop_path=dpr[i], norm_layer=norm_layer)
-                    for i in range(depths[0])])
-
-    # List of sublists of blocks. Each sublist works in a specific scale.
-    self.downsample_blocks = nn.ModuleList([
-                    nn.ModuleList(
-                      #[Block(dim=embed_dim//(4**i), num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                      #drop_rate=drop_rate, attn_drop=drop_rate, drop_path=0, norm_layer=norm_layer)] +\
-                      [Block(dim=embed_dim//(4**(len(depths)-1-i)), num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                      drop=drop_rate, attn_drop=drop_rate, drop_path=0, norm_layer=norm_layer, is_mask=0) for _ in range(depth)]) for i, depth in enumerate(depths)])
-
-    for i in range(len(self.pos_embed)):
-      trunc_normal_(self.pos_embed[i], std=.02)
-                    
-    self.deconv = nn.Sequential(nn.Conv1d(self.embed_dim, 1, 1, 1, 0))
-
-  def forward(self, x, epoch=0):
-    #x = self.patch_embed(x)
-    B = x.size()
-    #for index, block in enumerate(self.blocks):
-    #  x = block(x, epoch)
-    for index, block in enumerate(self.downsample_blocks):
-      if index != 0:
-        x, L = audio_downsample(x)
-      x = x + self.pos_embed[index].to(x.get_device())
-      for b in block:
-        x = b(x, epoch)
-          
-    out = x
-    return out
-
-
-class AttnDecoder(nn.Module):
-  def __init__(self, embed_dim, sample_length, patch_size=256, in_channels=1, num_classes=10, depths=[5, 3, 3, 2],
-                  num_heads=4, mlp_ratio=4., qkv_bias=False, qk_scale=None, drop_rate=0., attn_drop_rate=0.,
-                  drop_path_rate=0., hybtrid_backbone=None, norm_layer=nn.LayerNorm):
-    super(AttnDecoder, self).__init__()
-    self.ch = embed_dim
-    self.embed_dim = embed_dim
-    self.sample_length= sample_length
-    self.levels = len(depths)
-
-    #self.patch_embed = nn.Conv1d(in_channels, embed_dim, kernel_size=patch_size, stride=patch_size, padding=0)
-    
-    #self.l1 = nn.Linear(latent_dim, (self.sample_length) * self.embed_dim)
-    self.pos_embed = [nn.Parameter(torch.zeros(1, int(self.sample_length//(4**(len(depths)-1-i))), embed_dim//(4**i))) for i in range(len(depths))]
-
-    is_mask = True
-    dpr = [x.item() for x in torch.linspace(0, drop_path_rate, depths[0])] # stochastic depth decay rule
-
-    self.blocks = nn.ModuleList([
-                    Block(dim=embed_dim, num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                          drop=drop_rate, attn_drop=drop_rate, drop_path=dpr[i], norm_layer=norm_layer)
-                    for i in range(depths[0])])
-
-    # List of sublists of blocks. Each sublist works in a specific scale.
-    self.upsample_blocks = nn.ModuleList([
-                    nn.ModuleList(
-                      #[Block(dim=embed_dim//(4**i), num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                      #drop_rate=drop_rate, attn_drop=drop_rate, drop_path=0, norm_layer=norm_layer)] +\
-                      [Block(dim=embed_dim//(4**i), num_heads = num_heads, mlp_ratio = mlp_ratio, qkv_bias=qkv_bias, qk_scale=qk_scale,
-                      drop=drop_rate, attn_drop=drop_rate, drop_path=0., norm_layer=norm_layer, is_mask=0) for _ in range(depth)]) for i, depth in enumerate(depths)])
-
-    for i in range(len(self.pos_embed)):
-      trunc_normal_(self.pos_embed[i], std=.02)
-                    
-    self.deconv = nn.Sequential(nn.Conv1d(self.embed_dim//(4), 1, 1, 1, 0))
-
-  def forward(self, x, epoch=0):
-    #x = self.patch_embed(x)
-    B = x.size()
-    #for index, block in enumerate(self.blocks):
-    #  x = block(x, epoch)
-    for index, block in enumerate(self.upsample_blocks):
-      if index != 0:
-        x, L = audio_upsample(x)
-      x = x + self.pos_embed[index].to(x.get_device())
-      for b in block:
-        x = b(x, epoch)
-
-    #out = self.deconv(x.permute(0, 2, 1).view(-1, self.embed_dim//(4**self.levels), L)) 
-    out = x
     return out
 

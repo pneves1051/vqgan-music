@@ -37,7 +37,7 @@ class SelfAttn(nn.Module):
 
   def forward(self, x):
     h = x
-    h = self.norm(x)
+    #h = self.norm(h)
   
     # query
     q = self.query(h)
@@ -56,8 +56,8 @@ class SelfAttn(nn.Module):
     # Attention map times g path
     out = self.out(torch.bmm(v, w.transpose(1,2)))
 
-    return out + x
-    #return self.gamma * out + x
+    #return out + x
+    return self.gamma * out + x
 
 ######https://github.com/lucidrains/perceiver-pytorch
 ''' 

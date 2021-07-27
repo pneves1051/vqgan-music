@@ -349,5 +349,13 @@ def invert_mel(mel_spec, n_fft, hop_length, sample_rate=44100):
 
   stft = mag*torch.exp(1j * phase)
  
-  inv_stft = torch.istft(stft, hop_length=hop_length)
+  inv_stft = torch.istft(stft, hop_length=hop_length, eps=1e-10)
   return inv_stft, stft
+
+
+def create_log_mel_spec(data, n_fft,  hop_length, window_size, n_mels, fmin, fmax, sr, eps=1e-2):
+  mel = torch.Tensor(librosa.filters.mel(sr, n_fft, n_mels=n_mels, fmin=fmin, fmax=fmax)).to(data.device)
+  mel_spec = spec(squeeze(data), n_fft = n_fft, hop_length=hop_length, window_size=window_size)
+  spectrogram = torch.log(mel@mel_spec + eps)
+
+  return spectrogram

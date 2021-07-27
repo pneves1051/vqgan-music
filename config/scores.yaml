@@ -1,0 +1,12 @@
+sample_size_sec: 0.96
+sr: 16000
+n_fft_sec: 0.025
+hop_length_sec: 0.010 
+window_size_sec: 0.025
+n_mels: 64
+fmin_mel: 125
+fmax_mel: 7500
+log_eps: 0.01
+ex_window_size_sec: 0.96
+ex_hop_length_sec: 0.96
+

@@ -282,6 +282,7 @@ class AudioDatasetCond(torch.utils.data.IterableDataset):
     #return self.read_dataset(self.shuffled_file_list, self.batch_size)
 
 
+
 class AudioDataset(torch.utils.data.IterableDataset):
   def __init__(self, dataset_dir, sr, window_size, hop_len, batch_size):
     """
@@ -492,9 +493,11 @@ class DummyDataset(torch.torch.utils.data.IterableDataset):
     self.one_hot = one_hot
     self.mu_law = mu_law
 
+    self.signal_list = torch.randn((n_iter, 1, self.window_size))
+
   def produce_random_batch(self):
-    for _ in range(self.n_iter):
-      signal = torch.randn((1, 1, self.window_size))
+    for i in range(self.n_iter):
+      signal = self.signal_list[i:i+1]
       signal = signal - signal.mean()
       signal = signal/signal.abs().max()
       if self.mu_law:
