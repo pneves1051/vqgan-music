@@ -2,11 +2,11 @@ import math
 import numpy as np
 import torch
 import torch.nn as nn
-from models.vq_vae.modules import VQVAEEncoder, VQVAEDecoder, VectorQuantizer, AttnEncoder, AttnDecoder, ResBlock, Normalization, WSConv1d, WSConvTranspose1d
+from models.vq_vae.modules import VQVAEEncoder, VQVAEDecoder, VectorQuantizer, AttnEncoder, AttnDecoder, ResBlock, GroupNorm, WSConv1d, WSConvTranspose1d
 
 
 class VQVAE(nn.Module):
-  def __init__(self, embed_dim, n_embed, in_ch, out_ch, num_chs, strides, depth, normalization=Normalization, conv=WSConv1d, conv_t = WSConvTranspose1d, threshold = 1.0):
+  def __init__(self, embed_dim, n_embed, in_ch, out_ch, num_chs, strides, depth, normalization=GroupNorm, conv=WSConv1d, conv_t = WSConvTranspose1d, threshold = 1.0):
     super(VQVAE, self).__init__()
     self.embed_dim = embed_dim
     self.n_embed = n_embed
