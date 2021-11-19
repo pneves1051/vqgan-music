@@ -74,7 +74,7 @@ def calculate_fad(generator, classifier, dataloader, device, params, num_samples
      
       real = data['inputs'].to(device)
                   
-      fake = generator(real)
+      fake = generator(real)[0]
 
       real = real[:, :, :int(sr*params['sample_size_sec'])]
       fake = fake[:, :, :int(sr*params['sample_size_sec'])]
